@@ -122,6 +122,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   Building,
   Building2,
+  AlertTriangle,
   Lock,
   Unlock,
   FileText,
@@ -212,7 +213,6 @@ import {
   FileUp,
   Split,
   Globe,
-  Building2,
 } from "lucide-react";
 
 import { DocumentEditor } from "@onlyoffice/document-editor-react";
@@ -422,8 +422,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
   // --- Image Upload in Editor Ref ---
   const editorImageInputRef = useRef<HTMLInputElement>(null);
 
-  // --- Workspace View Mode: ONLYOFFICE (Primary/Default), Office Editor, Live Google Docs, or Split View ---
-  const [editorViewMode, setEditorViewMode] = useState<"onlyoffice" | "office" | "google-docs" | "split">("onlyoffice");
+  // --- Workspace View Mode: Office Editor (Primary/Default - Zero Config & Offline), ONLYOFFICE, Live Google Docs, or Split View ---
+  const [editorViewMode, setEditorViewMode] = useState<"office" | "onlyoffice" | "google-docs" | "split">("office");
   const [onlyOfficeDocServerUrl, setOnlyOfficeDocServerUrl] = useState<string>(() => {
     return localStorage.getItem("ONLYOFFICE_DOC_SERVER_URL") || "https://documentserver.onlyoffice.com";
   });
@@ -434,6 +434,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
   const [onlyOfficeLoading, setOnlyOfficeLoading] = useState<boolean>(false);
   const [onlyOfficeSyncing, setOnlyOfficeSyncing] = useState<boolean>(false);
   const [onlyOfficeInitialized, setOnlyOfficeInitialized] = useState<boolean>(false);
+  const [onlyOfficeLoadError, setOnlyOfficeLoadError] = useState<string | null>(null);
   const [showOnlyOfficeSettingsModal, setShowOnlyOfficeSettingsModal] = useState<boolean>(false);
   const [customDocServerInput, setCustomDocServerInput] = useState<string>("");
 
@@ -5508,39 +5509,40 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                       )}
                     </div>
 
-                    {/* Workspace View Mode Selector (ONLYOFFICE Primary vs Office vs Google Docs vs Split) */}
+                    {/* Workspace View Mode Selector (Office Virtual Paper / Word Studio vs ONLYOFFICE vs Google Docs vs Split) */}
                     <div className="mr-auto flex items-center gap-2">
                       <div className="flex items-center bg-slate-200/80 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-300/60 dark:border-slate-700 text-xs shadow-xs">
                         <button
                           type="button"
-                          onClick={() => {
-                            setEditorViewMode("onlyoffice");
-                            handlePrepareOnlyOfficeDoc();
-                          }}
+                          onClick={() => setEditorViewMode("office")}
                           className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-extrabold transition-all ${
-                            editorViewMode === "onlyoffice"
-                              ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow-sm ring-1 ring-orange-400/40"
-                              : "text-slate-700 dark:text-slate-300 hover:text-orange-600 dark:hover:text-orange-400"
+                            editorViewMode === "office"
+                              ? "bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 shadow-xs ring-1 ring-blue-500/30"
+                              : "text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400"
                           }`}
-                          title="محیط سازمانی پیش‌فرض: ONLYOFFICE Document Editor کامل (جایگزین کامل Microsoft Word)"
+                          title="محیط اصلی و فوق‌پیشرفته: ویرایشگر سربرگ استاندارد اداری A4/A5 و ورد (کاملاً آفلاین و بدون نیاز به سرور خارجی)"
                         >
-                          <Building2 size={13} className={editorViewMode === "onlyoffice" ? "text-amber-100" : "text-orange-500"} />
-                          <span>ONLYOFFICE سازمانی</span>
-                          <span className="text-[9px] bg-white/20 px-1 rounded font-normal hidden sm:inline">پیش‌فرض</span>
+                          <FileText size={13} className={editorViewMode === "office" ? "text-blue-600 dark:text-blue-400" : "text-slate-500"} />
+                          <span>ویرایشگر اداری و ورد</span>
+                          <span className="text-[9px] bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded-full font-bold hidden sm:inline">آماده کار</span>
                         </button>
 
                         <button
                           type="button"
-                          onClick={() => setEditorViewMode("office")}
+                          onClick={() => {
+                            setEditorViewMode("onlyoffice");
+                            setOnlyOfficeLoadError(null);
+                            handlePrepareOnlyOfficeDoc();
+                          }}
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-bold transition-all ${
-                            editorViewMode === "office"
-                              ? "bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 shadow-xs"
-                              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                            editorViewMode === "onlyoffice"
+                              ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow-sm ring-1 ring-orange-400/40"
+                              : "text-slate-600 dark:text-slate-400 hover:text-orange-600 dark:hover:text-orange-400"
                           }`}
-                          title="ویرایشگر سربرگ استاندارد اداری A4/A5"
+                          title="محیط سازمانی ONLYOFFICE Docs (نیازمند اتصال به سرور داکر یا سرور اسناد)"
                         >
-                          <FileText size={13} />
-                          <span className="hidden sm:inline">سربرگ اداری</span>
+                          <Building2 size={13} className={editorViewMode === "onlyoffice" ? "text-amber-100" : "text-orange-500"} />
+                          <span>ONLYOFFICE Docs</span>
                         </button>
 
                         <button
@@ -5551,7 +5553,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                               ? "bg-sky-600 text-white shadow-xs"
                               : "text-slate-600 dark:text-slate-400 hover:text-sky-600 dark:hover:text-sky-400"
                           }`}
-                          title="گزینه ابری ثانویه: کار با Google Docs"
+                          title="گزینه ابری: کار با Google Docs"
                         >
                           <Globe size={13} />
                           <span className="hidden sm:inline">Google Docs</span>
@@ -6235,8 +6237,52 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                         )}
 
                         {/* ONLYOFFICE Document Editor Component Frame */}
-                        <div className="flex-1 w-full h-full relative bg-slate-900 flex flex-col items-center justify-center">
-                          {onlyOfficeLoading ? (
+                        <div className="flex-1 w-full h-full relative bg-slate-900 flex flex-col items-center justify-center p-4">
+                          {onlyOfficeLoadError ? (
+                            <div className="flex flex-col items-center gap-4 text-center max-w-lg p-6 bg-slate-800/90 rounded-2xl border border-red-500/40 shadow-2xl animate-fade-in text-white">
+                              <div className="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400">
+                                <AlertTriangle size={28} />
+                              </div>
+                              <div>
+                                <h4 className="font-black text-white text-base mb-1.5">عدم برقراری ارتباط با سرور خارجی ONLYOFFICE</h4>
+                                <p className="text-slate-300 text-xs leading-relaxed">
+                                  سرور عمومی آنلاین ({onlyOfficeDocServerUrl}) در اینترنت/شبکه شما در دسترس نیست یا به دلیل محدودیت‌های اینترنت مسدود شده است.
+                                </p>
+                              </div>
+
+                              <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full pt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditorViewMode("office")}
+                                  className="w-full sm:flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold shadow-md flex items-center justify-center gap-2 text-xs transition-all"
+                                >
+                                  <FileText size={15} />
+                                  <span>سوئیچ به ویرایشگر فوق‌پیشرفته داخلی (آفلاین)</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCustomDocServerInput(onlyOfficeDocServerUrl);
+                                    setShowOnlyOfficeSettingsModal(true);
+                                  }}
+                                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold border border-slate-600 text-xs transition-colors flex items-center justify-center gap-1.5"
+                                >
+                                  <SlidersHorizontal size={14} />
+                                  <span>تنظیم سرور داکر / محلی</span>
+                                </button>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOnlyOfficeLoadError(null);
+                                  handlePrepareOnlyOfficeDoc(true);
+                                }}
+                                className="text-[11px] text-slate-400 hover:text-slate-200 underline mt-1"
+                              >
+                                تلاش مجدد برای اتصال به سرور
+                              </button>
+                            </div>
+                          ) : onlyOfficeLoading ? (
                             <div className="flex flex-col items-center gap-3 text-slate-300">
                               <RefreshCw size={32} className="animate-spin text-orange-400" />
                               <span className="font-bold text-sm">در حال بارگذاری محیط کاربری ONLYOFFICE...</span>
@@ -6283,12 +6329,15 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                                 }}
                                 events_onDocumentReady={() => {
                                   console.log("ONLYOFFICE Document Ready");
+                                  setOnlyOfficeLoadError(null);
                                 }}
                                 events_onError={(e) => {
                                   console.warn("ONLYOFFICE Error Event:", e);
+                                  setOnlyOfficeLoadError("خطا در بارگذاری موتور اسناد ONLYOFFICE");
                                 }}
                                 onLoadComponentError={(errorCode, errorDescription) => {
                                   console.error("ONLYOFFICE Component load error:", errorCode, errorDescription);
+                                  setOnlyOfficeLoadError(errorDescription || "خطا در بارگذاری کتابخانه ONLYOFFICE");
                                 }}
                               />
                             </div>
@@ -7430,6 +7479,147 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                   className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold px-5 py-2 rounded-xl"
                 >
                   بستن
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ONLYOFFICE DOCUMENT SERVER SETTINGS MODAL */}
+      <AnimatePresence>
+        {showOnlyOfficeSettingsModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-2xl max-w-xl w-full p-5 shadow-2xl flex flex-col text-right max-h-[90vh] overflow-y-auto"
+              dir="rtl"
+            >
+              <div className="flex items-center justify-between border-b dark:border-slate-800 pb-3 mb-4">
+                <h3 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
+                  <Building2 size={20} className="text-orange-500" />
+                  <span>تنظیمات سرور محلی و آفلاین ONLYOFFICE</span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowOnlyOfficeSettingsModal(false)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-4 text-xs">
+                <div className="bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800/60 rounded-xl p-3 text-orange-900 dark:text-orange-200 leading-relaxed">
+                  <p className="font-bold mb-1">راه‌اندازی کاملاً آفلاین و محلی بر روی سرور شما:</p>
+                  <p>
+                    برای استفاده از ویرایشگر ONLYOFFICE بدون نیاز به اینترنت، کافیست سرویس داکر آن را بر روی سرور خود اجرا کنید و آدرس آن را در کادر زیر قرار دهید.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1.5">
+                    آدرس سرور Document Server:
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={customDocServerInput}
+                      onChange={(e) => setCustomDocServerInput(e.target.value)}
+                      placeholder="http://localhost:8088 یا http://192.168.1.10:8088"
+                      className="flex-1 p-2.5 border rounded-xl border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-mono text-left text-xs"
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+
+                {/* Quick Presets */}
+                <div>
+                  <span className="font-bold text-slate-600 dark:text-slate-400 block mb-2">
+                    انتخاب سریع سرور:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCustomDocServerInput("http://localhost:8088")}
+                      className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-orange-500 bg-slate-50 dark:bg-slate-800/80 text-right transition-colors"
+                    >
+                      <span className="font-bold text-slate-800 dark:text-white block text-[11px]">داکر روی همین سیستم</span>
+                      <span className="text-[10px] text-slate-400 font-mono" dir="ltr">http://localhost:8088</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
+                        setCustomDocServerInput(`http://${host}:8088`);
+                      }}
+                      className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-orange-500 bg-slate-50 dark:bg-slate-800/80 text-right transition-colors"
+                    >
+                      <span className="font-bold text-slate-800 dark:text-white block text-[11px]">آی‌پی شبکه سرور جاری</span>
+                      <span className="text-[10px] text-slate-400 font-mono" dir="ltr">
+                        http://{typeof window !== "undefined" ? window.location.hostname : "IP"}:8088
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setCustomDocServerInput("https://documentserver.onlyoffice.com")}
+                      className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-500 bg-slate-50 dark:bg-slate-800/80 text-right transition-colors sm:col-span-2"
+                    >
+                      <span className="font-bold text-slate-800 dark:text-white block text-[11px]">سرور آنلاین و دمو ONLYOFFICE (نیاز به اینترنت)</span>
+                      <span className="text-[10px] text-slate-400 font-mono" dir="ltr">https://documentserver.onlyoffice.com</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Docker Quick Command */}
+                <div className="bg-slate-900 rounded-xl p-3 border border-slate-700 text-white font-mono text-[11px] space-y-1.5">
+                  <div className="flex items-center justify-between text-slate-400 text-[10px] font-sans">
+                    <span>دستور داکر برای راه‌اندازی در سرور (آفلاین):</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText("docker run -i -t -d -p 8088:80 --name onlyoffice-documentserver --restart=always -e JWT_ENABLED=false -e ALLOW_PRIVATE_IP_ADDRESS=true onlyoffice/documentserver");
+                        alert("دستور کپی شد!");
+                      }}
+                      className="text-orange-400 hover:text-orange-300 font-bold"
+                    >
+                      کپی دستور
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto text-emerald-400 select-all whitespace-pre-wrap p-1 bg-black/40 rounded-lg" dir="ltr">
+                    docker run -i -t -d -p 8088:80 --name onlyoffice-documentserver --restart=always -e JWT_ENABLED=false -e ALLOW_PRIVATE_IP_ADDRESS=true onlyoffice/documentserver
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center pt-4 mt-4 border-t dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowOnlyOfficeSettingsModal(false)}
+                  className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold px-4 py-2 rounded-xl"
+                >
+                  انصراف
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cleanUrl = customDocServerInput.trim().replace(/\/+$/, "");
+                    if (cleanUrl) {
+                      setOnlyOfficeDocServerUrl(cleanUrl);
+                      localStorage.setItem("ONLYOFFICE_DOC_SERVER_URL", cleanUrl);
+                      setOnlyOfficeLoadError(null);
+                      setShowOnlyOfficeSettingsModal(false);
+                      handlePrepareOnlyOfficeDoc(true);
+                    }
+                  }}
+                  className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white text-xs font-bold px-5 py-2 rounded-xl shadow-md"
+                >
+                  ذخیره و اتصال
                 </button>
               </div>
             </motion.div>

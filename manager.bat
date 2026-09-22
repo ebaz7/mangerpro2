@@ -28,16 +28,23 @@ echo 1. Install (Clone from GitHub, Setup, Install Service)
 echo 2. Update (Backup DB/Env, Pull changes, Restart Service)
 echo 3. Uninstall (Backup DB/Env, Remove Service)
 echo 4. View Error Logs (Check why it didn't start)
-echo 5. Exit
+echo 5. Install / Start ONLYOFFICE Document Server (Offline Docker)
+echo 6. Exit
 echo ========================================================
-set /p choice="Select an option (1-5): "
+set /p choice="Select an option (1-6): "
 
 if "%choice%"=="1" goto INSTALL
 if "%choice%"=="2" goto UPDATE
 if "%choice%"=="3" goto UNINSTALL
 if "%choice%"=="4" goto LOGS
-if "%choice%"=="5" goto EOF
+if "%choice%"=="5" goto ONLYOFFICE
+if "%choice%"=="6" goto EOF
 
+goto MENU
+
+:ONLYOFFICE
+cls
+call install_onlyoffice.bat
 goto MENU
 
 :INSTALL

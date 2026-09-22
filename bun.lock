@@ -20,6 +20,7 @@
         "@capacitor/status-bar": "^6.0.0",
         "@capgo/capacitor-share-target": "^8.0.35",
         "@google/genai": "latest",
+        "@onlyoffice/document-editor-react": "^2.2.0",
         "@types/qrcode": "^1.5.6",
         "adm-zip": "^0.5.10",
         "archiver": "^7.0.0",
@@ -427,6 +428,10 @@
     "@nodelib/fs.stat": ["@nodelib/fs.stat@2.0.5", "", {}, "sha512-RkhPPp2zrqDAQA/2jNhnztcPAlv64XdhIp7a7454A5ovI7Bukxgt7MX7udwAu3zg1DcpPU0rz3VV1SeaqvY4+A=="],
 
     "@nodelib/fs.walk": ["@nodelib/fs.walk@1.2.8", "", { "dependencies": { "@nodelib/fs.scandir": "2.1.5", "fastq": "^1.6.0" } }, "sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg=="],
+
+    "@onlyoffice/doceditor-types": ["@onlyoffice/doceditor-types@9.4.2", "", {}, "sha512-S906ieRFgp2CPNm6toCRyAIOIvR8JNzarZWbofeaKKBV6wN5PUEJlI6M/UI4FxbZNYJ0NXe4FIpO0wMFVFMDyQ=="],
+
+    "@onlyoffice/document-editor-react": ["@onlyoffice/document-editor-react@2.2.0", "", { "dependencies": { "lodash": "4.18.1" }, "peerDependencies": { "@onlyoffice/doceditor-types": ">=9.3.1", "react": "^16.9.0 || ^17 || ^18 || ^19", "react-dom": "^16.9.0 || ^17 || ^18 || ^19" } }, "sha512-SPgeJ1lK+I5mpcCUi6Qz98QVtlZR6axxCArgHoKNNBfFqXNmb6iDOf5Z1QUiVQ0xr57oo84D0ptyXZaF8K51nA=="],
 
     "@oozcitak/dom": ["@oozcitak/dom@1.15.6", "", { "dependencies": { "@oozcitak/infra": "1.0.5", "@oozcitak/url": "1.0.0", "@oozcitak/util": "8.3.4" } }, "sha512-k4uEIa6DI3FCrFJMGq/05U/59WnS9DjME0kaPqBRCJAqBTkmopbYV1Xs4qFKbDJ/9wOg8W97p+1E0heng/LH7g=="],
 

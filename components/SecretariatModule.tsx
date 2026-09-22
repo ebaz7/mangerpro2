@@ -209,9 +209,22 @@ import {
   FileSignature,
   FileSpreadsheet,
   ExternalLink,
-  FileDown,
   FileUp,
+  Split,
+  Globe,
+  Building2,
 } from "lucide-react";
+
+import { DocumentEditor } from "@onlyoffice/document-editor-react";
+
+import {
+  auth,
+  signInWithGoogleWorkspace,
+  logoutGoogleWorkspace,
+  getGoogleAccessToken,
+  openInStandaloneTab,
+  translateGoogleAuthError,
+} from "../services/googleWorkspaceService";
 
 import {
   User,
@@ -409,11 +422,45 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
   // --- Image Upload in Editor Ref ---
   const editorImageInputRef = useRef<HTMLInputElement>(null);
 
+  // --- Workspace View Mode: ONLYOFFICE (Primary/Default), Office Editor, Live Google Docs, or Split View ---
+  const [editorViewMode, setEditorViewMode] = useState<"onlyoffice" | "office" | "google-docs" | "split">("onlyoffice");
+  const [onlyOfficeDocServerUrl, setOnlyOfficeDocServerUrl] = useState<string>(() => {
+    return localStorage.getItem("ONLYOFFICE_DOC_SERVER_URL") || "https://documentserver.onlyoffice.com";
+  });
+  const [onlyOfficeDocKey, setOnlyOfficeDocKey] = useState<string>("");
+  const [onlyOfficeFileUrl, setOnlyOfficeFileUrl] = useState<string>("");
+  const [onlyOfficeTitle, setOnlyOfficeTitle] = useState<string>("نامه_اداری.docx");
+  const [onlyOfficeCallbackUrl, setOnlyOfficeCallbackUrl] = useState<string>("");
+  const [onlyOfficeLoading, setOnlyOfficeLoading] = useState<boolean>(false);
+  const [onlyOfficeSyncing, setOnlyOfficeSyncing] = useState<boolean>(false);
+  const [onlyOfficeInitialized, setOnlyOfficeInitialized] = useState<boolean>(false);
+  const [showOnlyOfficeSettingsModal, setShowOnlyOfficeSettingsModal] = useState<boolean>(false);
+  const [customDocServerInput, setCustomDocServerInput] = useState<string>("");
+
+  const [activeGoogleDocUrl, setActiveGoogleDocUrl] = useState<string>("https://docs.google.com/document/u/0/");
+  const [googleDocInputUrl, setGoogleDocInputUrl] = useState<string>("");
+  const [isImportingGoogleDoc, setIsImportingGoogleDoc] = useState(false);
+  const [googleDocStatusText, setGoogleDocStatusText] = useState<string | null>(null);
+  const [googleWorkspaceUser, setGoogleWorkspaceUser] = useState<any>(null);
+  const [isSigningInGoogle, setIsSigningInGoogle] = useState(false);
+
   // --- Image Selection & Word-Style Resizing in Editor ---
   const [selectedImgEl, setSelectedImgEl] = useState<HTMLImageElement | null>(null);
   const [selectedImgWidth, setSelectedImgWidth] = useState<string>("100%");
-  const [selectedImgAlign, setSelectedImgAlign] = useState<"right" | "center" | "left">("center");
+  const [selectedImgAlign, setSelectedImgAlign] = useState<"right" | "center" | "left" | "float-right" | "float-left">("center");
   const [selectedImgBorder, setSelectedImgBorder] = useState<"none" | "rounded" | "bordered" | "shadow">("rounded");
+  const [selectedImgOpacity, setSelectedImgOpacity] = useState<number>(100);
+  const [selectedImgIsWatermark, setSelectedImgIsWatermark] = useState<boolean>(false);
+  const [selectedImgMultiply, setSelectedImgMultiply] = useState<boolean>(false);
+  const [selectedImgPixelWidth, setSelectedImgPixelWidth] = useState<number>(350);
+  const [isDraggingImgResize, setIsDraggingImgResize] = useState(false);
+  const resizeDragStateRef = useRef<{
+    startX: number;
+    startY: number;
+    startWidth: number;
+    startHeight: number;
+    handle: string;
+  } | null>(null);
 
   // --- Color & Highlight Pickers ---
   const [showTextColorPicker, setShowTextColorPicker] = useState(false);
@@ -536,12 +583,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
   };
 
   // Image manipulation in editor
-  const updateSelectedImageWidth = (widthPercent: string) => {
-    if (!selectedImgEl) return;
-    selectedImgEl.style.width = widthPercent;
-    selectedImgEl.style.maxWidth = "100%";
-    selectedImgEl.style.height = "auto";
-    setSelectedImgWidth(widthPercent);
+  // Synchronize editor content with form state
+  const syncEditorContent = () => {
     const quill = quillRef.current?.getEditor();
     if (quill) {
       setNewLetterForm((prev) => ({
@@ -551,27 +594,133 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     }
   };
 
-  const updateSelectedImageAlign = (align: "right" | "center" | "left") => {
+  // Listen to Google Auth
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      setGoogleWorkspaceUser(user);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Listen to Quill Editor image click to select image & open toolbar
+  useEffect(() => {
+    const quill = quillRef.current?.getEditor();
+    if (!quill) return;
+
+    const handleEditorClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && target.tagName === "IMG") {
+        const img = target as HTMLImageElement;
+        setSelectedImgEl(img);
+
+        const opVal = img.style.opacity ? Math.round(parseFloat(img.style.opacity) * 100) : 100;
+        setSelectedImgOpacity(opVal);
+        setSelectedImgIsWatermark(img.style.position === "absolute");
+        setSelectedImgMultiply(img.style.mixBlendMode === "multiply");
+        setSelectedImgPixelWidth(img.offsetWidth || 350);
+      } else if (!target.closest("#image-floating-toolbar") && !target.closest(".img-resize-handle")) {
+        setSelectedImgEl(null);
+      }
+    };
+
+    const root = quill.root;
+    root.addEventListener("click", handleEditorClick);
+    return () => {
+      root.removeEventListener("click", handleEditorClick);
+    };
+  }, [quillRef.current, newLetterForm.content]);
+
+  // Image manipulation in editor
+  const updateSelectedImageWidth = (widthPercent: string) => {
     if (!selectedImgEl) return;
-    selectedImgEl.style.display = "block";
-    if (align === "right") {
-      selectedImgEl.style.marginLeft = "auto";
-      selectedImgEl.style.marginRight = "0";
-    } else if (align === "center") {
-      selectedImgEl.style.marginLeft = "auto";
-      selectedImgEl.style.marginRight = "auto";
+    selectedImgEl.style.width = widthPercent;
+    selectedImgEl.style.maxWidth = "100%";
+    selectedImgEl.style.height = "auto";
+    setSelectedImgWidth(widthPercent);
+    if (selectedImgEl.offsetWidth) {
+      setSelectedImgPixelWidth(selectedImgEl.offsetWidth);
+    }
+    syncEditorContent();
+  };
+
+  const updateSelectedImageWidthPx = (px: number) => {
+    if (!selectedImgEl) return;
+    selectedImgEl.style.width = `${px}px`;
+    selectedImgEl.style.maxWidth = "100%";
+    selectedImgEl.style.height = "auto";
+    setSelectedImgPixelWidth(px);
+    syncEditorContent();
+  };
+
+  const updateSelectedImageOpacity = (opacityPercent: number) => {
+    if (!selectedImgEl) return;
+    const decimal = Math.max(0.05, Math.min(1, opacityPercent / 100));
+    selectedImgEl.style.opacity = String(decimal);
+    setSelectedImgOpacity(opacityPercent);
+    syncEditorContent();
+  };
+
+  const toggleSelectedImageWatermark = () => {
+    if (!selectedImgEl) return;
+    const nextVal = !selectedImgIsWatermark;
+    if (nextVal) {
+      selectedImgEl.style.position = "absolute";
+      selectedImgEl.style.top = "50%";
+      selectedImgEl.style.left = "50%";
+      selectedImgEl.style.transform = "translate(-50%, -50%)";
+      selectedImgEl.style.zIndex = "0";
+      selectedImgEl.style.opacity = selectedImgEl.style.opacity || "0.15";
+      selectedImgEl.style.pointerEvents = "auto";
+      setSelectedImgOpacity(Math.round(parseFloat(selectedImgEl.style.opacity || "0.15") * 100));
     } else {
-      selectedImgEl.style.marginLeft = "0";
-      selectedImgEl.style.marginRight = "auto";
+      selectedImgEl.style.position = "relative";
+      selectedImgEl.style.top = "auto";
+      selectedImgEl.style.left = "auto";
+      selectedImgEl.style.transform = "none";
+      selectedImgEl.style.zIndex = "auto";
+      selectedImgEl.style.opacity = "1";
+      selectedImgEl.style.display = "block";
+      selectedImgEl.style.margin = "12px auto";
+      setSelectedImgOpacity(100);
+    }
+    setSelectedImgIsWatermark(nextVal);
+    syncEditorContent();
+  };
+
+  const toggleSelectedImageMultiply = () => {
+    if (!selectedImgEl) return;
+    const nextVal = !selectedImgMultiply;
+    selectedImgEl.style.mixBlendMode = nextVal ? "multiply" : "normal";
+    setSelectedImgMultiply(nextVal);
+    syncEditorContent();
+  };
+
+  const updateSelectedImageAlign = (align: "right" | "center" | "left" | "float-right" | "float-left") => {
+    if (!selectedImgEl) return;
+    if (align === "float-right") {
+      selectedImgEl.style.display = "inline-block";
+      selectedImgEl.style.float = "right";
+      selectedImgEl.style.margin = "8px 0 8px 16px";
+    } else if (align === "float-left") {
+      selectedImgEl.style.display = "inline-block";
+      selectedImgEl.style.float = "left";
+      selectedImgEl.style.margin = "8px 16px 8px 0";
+    } else {
+      selectedImgEl.style.float = "none";
+      selectedImgEl.style.display = "block";
+      if (align === "right") {
+        selectedImgEl.style.marginLeft = "auto";
+        selectedImgEl.style.marginRight = "0";
+      } else if (align === "center") {
+        selectedImgEl.style.marginLeft = "auto";
+        selectedImgEl.style.marginRight = "auto";
+      } else {
+        selectedImgEl.style.marginLeft = "0";
+        selectedImgEl.style.marginRight = "auto";
+      }
     }
     setSelectedImgAlign(align);
-    const quill = quillRef.current?.getEditor();
-    if (quill) {
-      setNewLetterForm((prev) => ({
-        ...prev,
-        content: quill.root.innerHTML,
-      }));
-    }
+    syncEditorContent();
   };
 
   const updateSelectedImageBorder = (borderStyle: "none" | "rounded" | "bordered" | "shadow") => {
@@ -581,40 +730,231 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
       selectedImgEl.style.border = "none";
       selectedImgEl.style.boxShadow = "none";
     } else if (borderStyle === "rounded") {
-      selectedImgEl.style.borderRadius = "8px";
+      selectedImgEl.style.borderRadius = "12px";
       selectedImgEl.style.border = "none";
       selectedImgEl.style.boxShadow = "none";
     } else if (borderStyle === "bordered") {
-      selectedImgEl.style.borderRadius = "4px";
-      selectedImgEl.style.border = "1px solid #cbd5e1";
+      selectedImgEl.style.borderRadius = "6px";
+      selectedImgEl.style.border = "2px solid #cbd5e1";
       selectedImgEl.style.padding = "4px";
       selectedImgEl.style.boxShadow = "none";
     } else if (borderStyle === "shadow") {
-      selectedImgEl.style.borderRadius = "8px";
+      selectedImgEl.style.borderRadius = "10px";
       selectedImgEl.style.border = "none";
-      selectedImgEl.style.boxShadow = "0 10px 15px -3px rgba(0, 0, 0, 0.15)";
+      selectedImgEl.style.boxShadow = "0 12px 24px -4px rgba(0, 0, 0, 0.18)";
     }
     setSelectedImgBorder(borderStyle);
-    const quill = quillRef.current?.getEditor();
-    if (quill) {
-      setNewLetterForm((prev) => ({
-        ...prev,
-        content: quill.root.innerHTML,
-      }));
-    }
+    syncEditorContent();
+  };
+
+  const startImageResize = (e: React.MouseEvent, handle: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!selectedImgEl) return;
+
+    const rect = selectedImgEl.getBoundingClientRect();
+    resizeDragStateRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startWidth: rect.width,
+      startHeight: rect.height,
+      handle,
+    };
+    setIsDraggingImgResize(true);
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!resizeDragStateRef.current || !selectedImgEl) return;
+      const { startX, startWidth, handle: activeHandle } = resizeDragStateRef.current;
+      const deltaX = moveEvent.clientX - startX;
+
+      let newWidth = startWidth;
+      if (activeHandle.includes("e")) {
+        newWidth = Math.max(60, startWidth + deltaX);
+      } else if (activeHandle.includes("w")) {
+        newWidth = Math.max(60, startWidth - deltaX);
+      }
+
+      newWidth = Math.min(850, Math.round(newWidth));
+      selectedImgEl.style.width = `${newWidth}px`;
+      selectedImgEl.style.height = "auto";
+      selectedImgEl.style.maxWidth = "100%";
+      setSelectedImgPixelWidth(newWidth);
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      setIsDraggingImgResize(false);
+      resizeDragStateRef.current = null;
+      syncEditorContent();
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
   };
 
   const deleteSelectedImage = () => {
     if (!selectedImgEl) return;
     selectedImgEl.remove();
     setSelectedImgEl(null);
-    const quill = quillRef.current?.getEditor();
-    if (quill) {
-      setNewLetterForm((prev) => ({
-        ...prev,
-        content: quill.root.innerHTML,
-      }));
+    syncEditorContent();
+  };
+
+  // --- Google Docs Workspace In-App Handlers ---
+  const handleImportGoogleDoc = async (urlOrIdToImport?: string) => {
+    const targetUrl = urlOrIdToImport || googleDocInputUrl || activeGoogleDocUrl;
+    if (!targetUrl || targetUrl === "https://docs.google.com/document/u/0/") {
+      alert("لطفاً ابتدا لینک یا شناسه سند Google Docs را در کادر وارد نمایید.");
+      return;
     }
+    try {
+      setIsImportingGoogleDoc(true);
+      setGoogleDocStatusText("در حال برقراری ارتباط با Google Docs و استخراج محتوا...");
+
+      const token = await getGoogleAccessToken(currentUser?.id);
+      const res = await fetch("/api/secretariat/import-google-doc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          urlOrId: targetUrl,
+          token: token || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "خطا در دریافت سند از Google Docs");
+
+      if (data.html) {
+        insertHTML(data.html);
+        setGoogleDocStatusText("محتوای سند گوگل داکس با موفقیت در نامه اداری وارد شد.");
+        setTimeout(() => setGoogleDocStatusText(null), 5000);
+      }
+    } catch (e: any) {
+      alert("خطا در بارگذاری محتوا از Google Docs: " + e.message);
+      setGoogleDocStatusText(null);
+    } finally {
+      setIsImportingGoogleDoc(false);
+    }
+  };
+
+  const handleExportToGoogleDocs = () => {
+    const content = newLetterForm.content || "";
+    if (!content) {
+      alert("متنی برای ارسال به Google Docs وجود ندارد.");
+      return;
+    }
+    const plainText = content.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    navigator.clipboard.writeText(plainText).then(() => {
+      setGoogleDocStatusText("متن نامه با موفقیت کپی شد! در سند Google Docs با زدن Ctrl+V آن را الصاق کنید.");
+      setTimeout(() => setGoogleDocStatusText(null), 6000);
+    });
+  };
+
+  // --- ONLYOFFICE Document Server Handlers ---
+  const handlePrepareOnlyOfficeDoc = async (forceRefresh = false) => {
+    if (onlyOfficeDocKey && !forceRefresh) return;
+    try {
+      setOnlyOfficeLoading(true);
+      const res = await fetch("/api/secretariat/onlyoffice/prepare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          letterId: editingLetterId || "",
+          subject: newLetterForm.subject || "نامه اداری",
+          content: newLetterForm.content || "",
+          receiver: newLetterForm.receiver || "",
+          sender: newLetterForm.sender || "",
+          date: newLetterForm.date || "",
+          letterNumber: editingLetterId ? (letters.find(l => l.id === editingLetterId)?.letterNumber || "Draft") : "Draft",
+          signers: newLetterForm.signers || [],
+          paperSize: newLetterForm.paperSize || "A4",
+          orientation: newLetterForm.orientation || "portrait",
+          companyId: newLetterForm.companyId || selectedCompany?.id || "",
+          noLetterhead: newLetterForm.noLetterhead || false,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("خطا در ایجاد سند برای ONLYOFFICE");
+      }
+
+      const data = await res.json();
+      setOnlyOfficeDocKey(data.docKey);
+      setOnlyOfficeFileUrl(data.fileUrl);
+      setOnlyOfficeTitle(data.title || "نامه_اداری.docx");
+      setOnlyOfficeCallbackUrl(data.callbackUrl);
+      setOnlyOfficeInitialized(true);
+    } catch (err: any) {
+      console.error("ONLYOFFICE Prepare error:", err);
+    } finally {
+      setOnlyOfficeLoading(false);
+    }
+  };
+
+  const handleSyncFromOnlyOffice = async () => {
+    if (!onlyOfficeDocKey) {
+      handlePrepareOnlyOfficeDoc(true);
+      return;
+    }
+    try {
+      setOnlyOfficeSyncing(true);
+      const res = await fetch(`/api/secretariat/onlyoffice/get-content/${onlyOfficeDocKey}`);
+      if (!res.ok) throw new Error("خطا در دریافت محتوای همگام شده");
+      const data = await res.json();
+      if (data.htmlContent) {
+        setNewLetterForm((prev) => ({
+          ...prev,
+          content: data.htmlContent,
+        }));
+        setGoogleDocStatusText("✓ متن ویرایش شده از ONLYOFFICE با موفقیت با سربرگ دبیرخانه همگام‌سازی شد.");
+        setTimeout(() => setGoogleDocStatusText(null), 5000);
+      } else {
+        setGoogleDocStatusText("✓ محتوای سند با ONLYOFFICE همگام است.");
+        setTimeout(() => setGoogleDocStatusText(null), 4000);
+      }
+    } catch (err: any) {
+      console.error("ONLYOFFICE Sync error:", err);
+    } finally {
+      setOnlyOfficeSyncing(false);
+    }
+  };
+
+  const handleSaveOnlyOfficeServerUrl = (url: string) => {
+    let clean = url.trim();
+    if (!clean) clean = "https://documentserver.onlyoffice.com";
+    setOnlyOfficeDocServerUrl(clean);
+    localStorage.setItem("ONLYOFFICE_DOC_SERVER_URL", clean);
+    setShowOnlyOfficeSettingsModal(false);
+    handlePrepareOnlyOfficeDoc(true);
+  };
+
+  // Auto-prepare ONLYOFFICE when opening editor or switching mode
+  useEffect(() => {
+    if (showNewLetterModal && (editorViewMode === "onlyoffice" || editorViewMode === "split")) {
+      handlePrepareOnlyOfficeDoc();
+    }
+  }, [showNewLetterModal, editorViewMode]);
+
+  const handleConnectGoogleWorkspace = async () => {
+    try {
+      setIsSigningInGoogle(true);
+      await signInWithGoogleWorkspace(currentUser?.id, { forceAccountSelection: true });
+    } catch (e: any) {
+      alert("خطا در ورود با حساب گوگل: " + translateGoogleAuthError(e));
+    } finally {
+      setIsSigningInGoogle(false);
+    }
+  };
+
+  const handleLoadGoogleDocInFrame = (urlOrId: string) => {
+    if (!urlOrId.trim()) return;
+    let url = urlOrId.trim();
+    if (!url.startsWith("http")) {
+      url = `https://docs.google.com/document/d/${url}/edit?embedded=true`;
+    } else if (url.includes("/document/d/") && !url.includes("embedded=true")) {
+      url = url.split("?")[0] + "?embedded=true";
+    }
+    setActiveGoogleDocUrl(url);
+    setGoogleDocInputUrl(url);
   };
 
   const handleEditorImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -644,11 +984,11 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
           receiver: newLetterForm.receiver || "",
           sender: newLetterForm.sender || "",
           date: newLetterForm.date || "",
-          letterNumber: newLetterForm.letterNumber || "",
+          letterNumber: editingLetterId ? (letters.find(l => l.id === editingLetterId)?.letterNumber || "Draft") : "Draft",
           signers: newLetterForm.signers || [],
           paperSize: newLetterForm.paperSize || "A4",
           orientation: newLetterForm.orientation || "portrait",
-          companyId: newLetterForm.companyId || selectedCompany?.id,
+          companyId: selectedCompany?.id,
           noLetterhead: false,
         }),
       });
@@ -657,7 +997,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const safeNum = String(newLetterForm.letterNumber || "Draft").replace(/[\/\\]/g, "_");
+      const currentDocNum = editingLetterId ? (letters.find(l => l.id === editingLetterId)?.letterNumber || "Draft") : "Draft";
+      const safeNum = String(currentDocNum).replace(/[\/\\]/g, "_");
       a.download = `Letter_${safeNum}.docx`;
       document.body.appendChild(a);
       a.click();
@@ -5167,34 +5508,102 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                       )}
                     </div>
 
-                    {/* Quick zoom controls on the left */}
-                    <div className="mr-auto flex items-center gap-1.5 bg-white dark:bg-slate-900 border dark:border-white/10 px-2 py-0.5 rounded-lg text-xs">
-                      <span className="text-[10px] text-slate-400 font-bold">
-                        بزرگنمایی صفحه:
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEditorZoom((prev) => Math.max(80, prev - 10))
-                        }
-                        className="w-5 h-5 flex items-center justify-center text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded font-black text-sm"
-                        title="کوچک‌نمایی"
-                      >
-                        -
-                      </button>
-                      <span className="font-bold font-mono text-[10px] min-w-[30px] text-center dark:text-white">
-                        {editorZoom}%
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEditorZoom((prev) => Math.min(200, prev + 10))
-                        }
-                        className="w-5 h-5 flex items-center justify-center text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded font-black text-sm"
-                        title="بزرگ‌نمایی"
-                      >
-                        +
-                      </button>
+                    {/* Workspace View Mode Selector (ONLYOFFICE Primary vs Office vs Google Docs vs Split) */}
+                    <div className="mr-auto flex items-center gap-2">
+                      <div className="flex items-center bg-slate-200/80 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-300/60 dark:border-slate-700 text-xs shadow-xs">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditorViewMode("onlyoffice");
+                            handlePrepareOnlyOfficeDoc();
+                          }}
+                          className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-extrabold transition-all ${
+                            editorViewMode === "onlyoffice"
+                              ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow-sm ring-1 ring-orange-400/40"
+                              : "text-slate-700 dark:text-slate-300 hover:text-orange-600 dark:hover:text-orange-400"
+                          }`}
+                          title="محیط سازمانی پیش‌فرض: ONLYOFFICE Document Editor کامل (جایگزین کامل Microsoft Word)"
+                        >
+                          <Building2 size={13} className={editorViewMode === "onlyoffice" ? "text-amber-100" : "text-orange-500"} />
+                          <span>ONLYOFFICE سازمانی</span>
+                          <span className="text-[9px] bg-white/20 px-1 rounded font-normal hidden sm:inline">پیش‌فرض</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setEditorViewMode("office")}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-bold transition-all ${
+                            editorViewMode === "office"
+                              ? "bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 shadow-xs"
+                              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                          }`}
+                          title="ویرایشگر سربرگ استاندارد اداری A4/A5"
+                        >
+                          <FileText size={13} />
+                          <span className="hidden sm:inline">سربرگ اداری</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setEditorViewMode("google-docs")}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-bold transition-all ${
+                            editorViewMode === "google-docs"
+                              ? "bg-sky-600 text-white shadow-xs"
+                              : "text-slate-600 dark:text-slate-400 hover:text-sky-600 dark:hover:text-sky-400"
+                          }`}
+                          title="گزینه ابری ثانویه: کار با Google Docs"
+                        >
+                          <Globe size={13} />
+                          <span className="hidden sm:inline">Google Docs</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditorViewMode("split");
+                            handlePrepareOnlyOfficeDoc();
+                          }}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-bold transition-all ${
+                            editorViewMode === "split"
+                              ? "bg-purple-600 text-white shadow-xs"
+                              : "text-slate-600 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400"
+                          }`}
+                          title="نمای همزمان دوگانه: ONLYOFFICE و سربرگ در کنار هم"
+                        >
+                          <Split size={13} />
+                          <span className="hidden md:inline">نمای همزمان</span>
+                        </button>
+                      </div>
+
+                      {/* Quick zoom controls on the left */}
+                      <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border dark:border-white/10 px-2 py-0.5 rounded-lg text-xs">
+                        <span className="text-[10px] text-slate-400 font-bold hidden lg:inline">
+                          بزرگنمایی:
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditorZoom((prev) => Math.max(80, prev - 10))
+                          }
+                          className="w-5 h-5 flex items-center justify-center text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded font-black text-sm"
+                          title="کوچک‌نمایی"
+                        >
+                          -
+                        </button>
+                        <span className="font-bold font-mono text-[10px] min-w-[30px] text-center dark:text-white">
+                          {editorZoom}%
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditorZoom((prev) => Math.min(200, prev + 10))
+                          }
+                          className="w-5 h-5 flex items-center justify-center text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded font-black text-sm"
+                          title="بزرگ‌نمایی"
+                        >
+                          +
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -5580,45 +5989,565 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                     </div>
                   </div>
 
-                  {/* Virtual Paper Workspace Canvas - Maximized Full Area */}
-                  <div className="flex-1 min-h-0 bg-slate-200/90 dark:bg-slate-950 p-4 sm:p-8 overflow-y-auto flex justify-center w-full relative custom-scrollbar">
+                  {/* Floating Image Control Bar with Mouse Resizing, Watermark & Opacity Controls */}
+                  {selectedImgEl && (
                     <div
-                      className="bg-white dark:bg-gray-900 shadow-2xl border border-slate-300 dark:border-slate-800 rounded-sm p-[1.8cm] mx-auto transition-all duration-300 google-docs-paper text-right relative flex flex-col justify-between my-auto"
-                      style={{
-                        width:
-                          newLetterForm.paperSize === "A5"
-                            ? newLetterForm.orientation === "landscape"
-                              ? "100%"
-                              : "148mm"
-                            : newLetterForm.orientation === "landscape"
-                              ? "100%"
-                              : "210mm",
-                        minHeight:
-                          newLetterForm.paperSize === "A5"
-                            ? newLetterForm.orientation === "landscape"
-                              ? "148mm"
-                              : "210mm"
-                            : newLetterForm.orientation === "landscape"
-                              ? "210mm"
-                              : "297mm",
-                        maxWidth: "100%",
-                        transform: editorZoom !== 100 ? `scale(${editorZoom / 100})` : undefined,
-                        transformOrigin: "top center",
-                      }}
-                      dir="rtl"
+                      id="image-floating-toolbar"
+                      className="bg-indigo-950 text-white border-y border-indigo-700/80 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-xl z-40 text-xs backdrop-blur-md animate-slide-down"
                     >
-                      {(() => {
-                        const cleanText = (newLetterForm.content || "")
-                          .replace(/<[^>]*>/g, "")
-                          .trim();
-                        const wCount = cleanText
-                          ? cleanText.split(/\s+/).length
-                          : 0;
-                        const cCount = cleanText.length;
-                        return (
-                          <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-1.5 bg-indigo-900 px-2.5 py-1 rounded-lg font-bold border border-indigo-700">
+                          <ImageIcon size={14} className="text-cyan-400" />
+                          <span className="text-cyan-200">تنظیمات تصویر انتخابی:</span>
+                        </div>
+
+                        {/* Resize with presets & slider */}
+                        <div className="flex items-center gap-1 bg-indigo-900/60 px-2 py-1 rounded-lg border border-indigo-700/60">
+                          <span className="text-indigo-300 font-semibold text-[11px]">اندازه:</span>
+                          <span className="font-mono text-cyan-300 font-bold px-1">{selectedImgPixelWidth}px</span>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedImageWidth("25%")}
+                            className="px-1.5 py-0.5 rounded hover:bg-indigo-700 text-[10px] font-bold"
+                          >
+                            ۲۵٪
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedImageWidth("50%")}
+                            className="px-1.5 py-0.5 rounded hover:bg-indigo-700 text-[10px] font-bold"
+                          >
+                            ۵۰٪
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedImageWidth("75%")}
+                            className="px-1.5 py-0.5 rounded hover:bg-indigo-700 text-[10px] font-bold"
+                          >
+                            ۷۵٪
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedImageWidth("100%")}
+                            className="px-1.5 py-0.5 rounded hover:bg-indigo-700 text-[10px] font-bold"
+                          >
+                            ۱۰۰٪
+                          </button>
+                          <input
+                            type="range"
+                            min={60}
+                            max={800}
+                            step={10}
+                            value={selectedImgPixelWidth}
+                            onChange={(e) => updateSelectedImageWidthPx(Number(e.target.value))}
+                            className="w-20 accent-cyan-400 cursor-pointer h-1.5"
+                            title="تغییر دقیق سایز تصویر با نوار لغزنده"
+                          />
+                        </div>
+
+                        {/* Background Opacity & Blur Slider */}
+                        <div className="flex items-center gap-1.5 bg-indigo-900/60 px-2.5 py-1 rounded-lg border border-indigo-700/60">
+                          <span className="text-indigo-300 font-semibold text-[11px]">محو و شفافیت:</span>
+                          <input
+                            type="range"
+                            min={10}
+                            max={100}
+                            step={5}
+                            value={selectedImgOpacity}
+                            onChange={(e) => updateSelectedImageOpacity(Number(e.target.value))}
+                            className="w-20 accent-cyan-400 cursor-pointer h-1.5"
+                            title="تنظیم درصد شفافیت تصویر"
+                          />
+                          <span className="font-mono text-cyan-300 font-bold text-[11px] min-w-[32px]">
+                            {selectedImgOpacity}٪
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedImageOpacity(15)}
+                            className="px-1.5 py-0.5 rounded bg-indigo-800 hover:bg-indigo-700 text-[10px] text-amber-300 font-bold"
+                            title="واترمارک محو ۱۵٪"
+                          >
+                            واترمارک
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedImageOpacity(100)}
+                            className="px-1.5 py-0.5 rounded bg-indigo-800 hover:bg-indigo-700 text-[10px] text-emerald-300 font-bold"
+                            title="شفافیت کامل ۱۰۰٪"
+                          >
+                            ۱۰۰٪
+                          </button>
+                        </div>
+
+                        {/* Watermark mode toggle */}
+                        <button
+                          type="button"
+                          onClick={toggleSelectedImageWatermark}
+                          className={`px-2.5 py-1 rounded-lg font-bold border transition-colors flex items-center gap-1 ${
+                            selectedImgIsWatermark
+                              ? "bg-amber-500 text-slate-900 border-amber-400"
+                              : "bg-indigo-800 hover:bg-indigo-700 text-indigo-100 border-indigo-600"
+                          }`}
+                          title="قرار دادن تصویر در پس‌زمینه (پشت متن نامه اداری)"
+                        >
+                          <Layers size={13} />
+                          <span>{selectedImgIsWatermark ? "✓ در پس‌زمینه (زیر متن)" : "قرارگیری در پس‌زمینه"}</span>
+                        </button>
+
+                        {/* Transparent White Background (Multiply) */}
+                        <button
+                          type="button"
+                          onClick={toggleSelectedImageMultiply}
+                          className={`px-2.5 py-1 rounded-lg font-bold border transition-colors flex items-center gap-1 ${
+                            selectedImgMultiply
+                              ? "bg-emerald-500 text-slate-900 border-emerald-400"
+                              : "bg-indigo-800 hover:bg-indigo-700 text-indigo-100 border-indigo-600"
+                          }`}
+                          title="حذف پس‌زمینه سفید تصویر (مناسب برای امضا، مهر و لوگو)"
+                        >
+                          <Sparkles size={13} />
+                          <span>{selectedImgMultiply ? "✓ حذف پس‌زمینه سفید (فعال)" : "حذف پس‌زمینه سفید"}</span>
+                        </button>
+
+                        {/* Alignment */}
+                        <div className="flex items-center gap-0.5 bg-indigo-900/60 p-0.5 rounded-lg border border-indigo-700/60">
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedImageAlign("right")}
+                            className={`px-2 py-0.5 rounded font-bold ${selectedImgAlign === "right" ? "bg-cyan-600 text-white" : "hover:bg-indigo-700 text-indigo-200"}`}
+                            title="راست‌چین"
+                          >
+                            راست
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedImageAlign("center")}
+                            className={`px-2 py-0.5 rounded font-bold ${selectedImgAlign === "center" ? "bg-cyan-600 text-white" : "hover:bg-indigo-700 text-indigo-200"}`}
+                            title="وسط‌چین"
+                          >
+                            وسط
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedImageAlign("left")}
+                            className={`px-2 py-0.5 rounded font-bold ${selectedImgAlign === "left" ? "bg-cyan-600 text-white" : "hover:bg-indigo-700 text-indigo-200"}`}
+                            title="چپ‌چین"
+                          >
+                            چپ
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedImageAlign("float-right")}
+                            className={`px-2 py-0.5 rounded font-bold ${selectedImgAlign === "float-right" ? "bg-cyan-600 text-white" : "hover:bg-indigo-700 text-indigo-200"}`}
+                            title="دورپیچی متن (شناور راست)"
+                          >
+                            دورپیچ
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-cyan-200 hidden md:inline">
+                          💡 با کشیدن گوشه‌های آبی تصویر با ماوس، اندازه تغییر می‌کند
+                        </span>
+                        <button
+                          type="button"
+                          onClick={deleteSelectedImage}
+                          className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold flex items-center gap-1 transition-colors"
+                          title="حذف تصویر"
+                        >
+                          <Trash2 size={13} />
+                          <span>حذف</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedImgEl(null)}
+                          className="text-indigo-300 hover:text-white p-1"
+                          title="بستن"
+                        >
+                          <X size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Dynamic Workspace Container */}
+                  <div className="flex-1 min-h-0 bg-slate-200/90 dark:bg-slate-950 flex flex-col w-full relative overflow-hidden">
+                    
+                    {/* MODE 1: ONLYOFFICE Workspace (Default & Primary Priority) */}
+                    {editorViewMode === "onlyoffice" && (
+                      <div className="flex-1 flex flex-col w-full h-full bg-slate-900">
+                        {/* ONLYOFFICE Action Ribbon Bar */}
+                        <div className="bg-slate-900 border-b border-slate-700 px-4 py-2 flex flex-wrap items-center justify-between gap-3 text-xs text-white shrink-0">
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 bg-gradient-to-r from-orange-600 to-amber-600 text-white px-2.5 py-1 rounded-lg font-black shadow-xs">
+                              <Building2 size={15} />
+                              <span>محیط سازمانی ONLYOFFICE Docs</span>
+                            </div>
+                            <span className="text-slate-400 hidden sm:inline text-[11px]">
+                              ویرایشگر رسمی اسناد سازمانی (docx) - تمام امکانات پیشرفته Word
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleSyncFromOnlyOffice}
+                              disabled={onlyOfficeSyncing}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 transition-all shadow-xs"
+                              title="دریافت آخرین متن ویرایش شده از ONLYOFFICE و اعمال بر روی سربرگ اداری"
+                            >
+                              <RefreshCw size={13} className={onlyOfficeSyncing ? "animate-spin" : ""} />
+                              <span>{onlyOfficeSyncing ? "در حال دریافت..." : "همگام‌سازی با سربرگ"}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={handleQuickDocxDownload}
+                              disabled={quickWordDownloading}
+                              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center gap-1.5 transition-all shadow-xs"
+                              title="دانلود مستقیم فایل Word (.docx)"
+                            >
+                              <Download size={13} />
+                              <span>دانلود فایل Word</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCustomDocServerInput(onlyOfficeDocServerUrl);
+                                setShowOnlyOfficeSettingsModal(true);
+                              }}
+                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-colors"
+                              title="تنظیمات سرور ONLYOFFICE"
+                            >
+                              <SlidersHorizontal size={14} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Status notification toast inside workspace */}
+                        {googleDocStatusText && (
+                          <div className="bg-emerald-900/90 text-emerald-200 border-b border-emerald-700 px-4 py-1.5 text-xs text-center font-bold flex items-center justify-center gap-2 animate-slide-down">
+                            <CheckCheck size={14} className="text-emerald-400" />
+                            <span>{googleDocStatusText}</span>
+                          </div>
+                        )}
+
+                        {/* ONLYOFFICE Document Editor Component Frame */}
+                        <div className="flex-1 w-full h-full relative bg-slate-900 flex flex-col items-center justify-center">
+                          {onlyOfficeLoading ? (
+                            <div className="flex flex-col items-center gap-3 text-slate-300">
+                              <RefreshCw size={32} className="animate-spin text-orange-400" />
+                              <span className="font-bold text-sm">در حال بارگذاری محیط کاربری ONLYOFFICE...</span>
+                            </div>
+                          ) : onlyOfficeDocKey && onlyOfficeFileUrl ? (
+                            <div className="w-full h-full relative">
+                              <DocumentEditor
+                                id="onlyoffice-docx-editor"
+                                documentServerUrl={onlyOfficeDocServerUrl}
+                                config={{
+                                  document: {
+                                    fileType: "docx",
+                                    key: onlyOfficeDocKey,
+                                    title: onlyOfficeTitle,
+                                    url: onlyOfficeFileUrl,
+                                    permissions: {
+                                      download: true,
+                                      edit: true,
+                                      print: true,
+                                      review: true,
+                                    },
+                                  },
+                                  documentType: "word",
+                                  editorConfig: {
+                                    lang: "fa",
+                                    mode: "edit",
+                                    callbackUrl: onlyOfficeCallbackUrl,
+                                    customization: {
+                                      autosave: true,
+                                      forcesave: true,
+                                      compactHeader: true,
+                                      toolbarHideFileName: false,
+                                      unit: "cm",
+                                      zoom: 100,
+                                      uiTheme: "theme-light",
+                                    },
+                                    user: {
+                                      id: currentUser?.id || "user-1",
+                                      name: currentUser?.name || "کاربر دبیرخانه",
+                                    },
+                                  },
+                                  height: "100%",
+                                  width: "100%",
+                                }}
+                                events_onDocumentReady={() => {
+                                  console.log("ONLYOFFICE Document Ready");
+                                }}
+                                events_onError={(e) => {
+                                  console.warn("ONLYOFFICE Error Event:", e);
+                                }}
+                                onLoadComponentError={(errorCode, errorDescription) => {
+                                  console.error("ONLYOFFICE Component load error:", errorCode, errorDescription);
+                                }}
+                              />
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center gap-4 text-center max-w-md p-6 bg-slate-800/80 rounded-2xl border border-slate-700 shadow-2xl">
+                              <Building2 size={48} className="text-orange-400" />
+                              <div>
+                                <h4 className="font-black text-white text-base mb-1">اتصال به ONLYOFFICE Document Editor</h4>
+                                <p className="text-slate-400 text-xs">
+                                  برای شروع کار با ابزارهای کامل ویرایش اسناد سازمانی و Word، سند خود را راه‌اندازی کنید.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handlePrepareOnlyOfficeDoc(true)}
+                                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white font-extrabold shadow-lg transition-all flex items-center gap-2 text-sm"
+                              >
+                                <Sparkles size={16} />
+                                <span>بارگذاری ویرایشگر ONLYOFFICE</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* MODE 2: Office Virtual Paper Workspace (A4/A5 Standard Letterhead) */}
+                    {editorViewMode === "office" && (
+                      <div className="flex-1 min-h-0 p-4 sm:p-8 overflow-y-auto flex justify-center w-full relative custom-scrollbar">
+                        <div
+                          className="bg-white dark:bg-gray-900 shadow-2xl border border-slate-300 dark:border-slate-800 rounded-sm p-[1.8cm] mx-auto transition-all duration-300 google-docs-paper text-right relative flex flex-col justify-between my-auto"
+                          style={{
+                            width:
+                              newLetterForm.paperSize === "A5"
+                                ? newLetterForm.orientation === "landscape"
+                                  ? "100%"
+                                  : "148mm"
+                                : newLetterForm.orientation === "landscape"
+                                  ? "100%"
+                                  : "210mm",
+                            minHeight:
+                              newLetterForm.paperSize === "A5"
+                                ? newLetterForm.orientation === "landscape"
+                                  ? "148mm"
+                                  : "210mm"
+                                : newLetterForm.orientation === "landscape"
+                                  ? "210mm"
+                                  : "297mm",
+                            maxWidth: "100%",
+                            transform: editorZoom !== 100 ? `scale(${editorZoom / 100})` : undefined,
+                            transformOrigin: "top center",
+                          }}
+                          dir="rtl"
+                        >
+                          {(() => {
+                            const cleanText = (newLetterForm.content || "")
+                              .replace(/<[^>]*>/g, "")
+                              .trim();
+                            const wCount = cleanText
+                              ? cleanText.split(/\s+/).length
+                              : 0;
+                            const cCount = cleanText.length;
+                            return (
+                              <>
+                                <ReactQuill
+                                  ref={quillRef}
+                                  theme="snow"
+                                  value={newLetterForm.content}
+                                  onChange={(val) =>
+                                    setNewLetterForm({
+                                      ...newLetterForm,
+                                      content: val,
+                                    })
+                                  }
+                                  placeholder="متن رسمی و اداری خود را اینجا بنویسید..."
+                                  className="text-sm border-none ql-editor-borderless flex-1"
+                                  modules={{
+                                    toolbar: "#letter-custom-quill-toolbar",
+                                  }}
+                                />
+
+                                {/* Realtime Stats Display */}
+                                <div className="absolute bottom-3 left-4 select-none bg-slate-50 dark:bg-slate-800 border dark:border-white/5 rounded px-2 py-1 text-[10px] text-slate-400 dark:text-slate-300 font-bold flex items-center gap-2 shadow-sm pointer-events-none">
+                                  <span>
+                                    کلمات:{" "}
+                                    <b className="text-slate-700 dark:text-white font-mono">
+                                      {wCount}
+                                    </b>
+                                  </span>
+                                  <span className="text-slate-300 dark:text-slate-700">
+                                    |
+                                  </span>
+                                  <span>
+                                    کاراکترها:{" "}
+                                    <b className="text-slate-700 dark:text-white font-mono">
+                                      {cCount}
+                                    </b>
+                                  </span>
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* MODE 3: Google Docs Cloud Interactive Workspace (Secondary Option) */}
+                    {editorViewMode === "google-docs" && (
+                      <div className="flex-1 flex flex-col w-full h-full bg-slate-900">
+                        {/* Google Docs Toolbar */}
+                        <div className="bg-slate-900 border-b border-slate-700 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs text-white shrink-0">
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 bg-sky-600 text-white px-2.5 py-1 rounded-lg font-black">
+                              <Globe size={15} />
+                              <span>محیط تعاملی Google Docs</span>
+                            </div>
+                            <span className="text-slate-400 hidden lg:inline text-[11px]">
+                              (گزینه ابری ثانویه برای ویرایش و انتقال محتوا)
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              type="text"
+                              value={googleDocInputUrl}
+                              onChange={(e) => setGoogleDocInputUrl(e.target.value)}
+                              placeholder="لینک سند گوگل داکس (docs.google.com/document/...)"
+                              className="px-3 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 w-64 focus:outline-none focus:border-sky-500"
+                              dir="ltr"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleLoadGoogleDocInFrame(googleDocInputUrl)}
+                              className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-bold"
+                            >
+                              بارگذاری سند
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newDocUrl = "https://docs.google.com/document/create";
+                                window.open(newDocUrl, "_blank");
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold border border-slate-700 flex items-center gap-1"
+                              title="ایجاد سند جدید در Google Docs"
+                            >
+                              <ExternalLink size={13} />
+                              <span>سند جدید</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleImportGoogleDoc(googleDocInputUrl || activeGoogleDocUrl)}
+                              disabled={isImportingGoogleDoc}
+                              className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1"
+                              title="انتقال محتوای Google Docs به متن نامه اداری"
+                            >
+                              <FileUp size={13} />
+                              <span>{isImportingGoogleDoc ? "در حال دریافت..." : "ورود به نامه اداری"}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={handleExportToGoogleDocs}
+                              className="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold flex items-center gap-1"
+                              title="کپی متن نامه برای الصاق در Google Docs"
+                            >
+                              <Copy size={13} />
+                              <span>ارسال به Google Docs</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Google Docs Status bar */}
+                        {googleDocStatusText && (
+                          <div className="bg-sky-900/90 text-sky-200 border-b border-sky-700 px-4 py-1.5 text-xs text-center font-bold">
+                            {googleDocStatusText}
+                          </div>
+                        )}
+
+                        {/* Embedded Google Docs Iframe */}
+                        <div className="flex-1 w-full h-full relative bg-white">
+                          <iframe
+                            src={activeGoogleDocUrl}
+                            className="w-full h-full border-0"
+                            allow="clipboard-read; clipboard-write"
+                            title="Google Docs Interactive Editor"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* MODE 4: Split View Workspace (ONLYOFFICE + Letterhead side by side) */}
+                    {editorViewMode === "split" && (
+                      <div className="flex-1 flex flex-col md:flex-row w-full h-full overflow-hidden">
+                        {/* Left Half: ONLYOFFICE */}
+                        <div className="w-full md:w-1/2 h-1/2 md:h-full border-b md:border-b-0 md:border-l border-slate-700 flex flex-col bg-slate-900">
+                          <div className="bg-slate-900 border-b border-slate-700 px-3 py-1.5 flex items-center justify-between text-xs text-white shrink-0">
+                            <div className="flex items-center gap-1.5 font-bold text-orange-400">
+                              <Building2 size={14} />
+                              <span>ONLYOFFICE Docs</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleSyncFromOnlyOffice}
+                              disabled={onlyOfficeSyncing}
+                              className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1"
+                            >
+                              <RefreshCw size={11} className={onlyOfficeSyncing ? "animate-spin" : ""} />
+                              <span>همگام با سربرگ</span>
+                            </button>
+                          </div>
+                          <div className="flex-1 w-full h-full relative bg-slate-900">
+                            {onlyOfficeDocKey && onlyOfficeFileUrl ? (
+                              <DocumentEditor
+                                id="onlyoffice-split-editor"
+                                documentServerUrl={onlyOfficeDocServerUrl}
+                                config={{
+                                  document: {
+                                    fileType: "docx",
+                                    key: onlyOfficeDocKey,
+                                    title: onlyOfficeTitle,
+                                    url: onlyOfficeFileUrl,
+                                  },
+                                  documentType: "word",
+                                  editorConfig: {
+                                    lang: "fa",
+                                    mode: "edit",
+                                    callbackUrl: onlyOfficeCallbackUrl,
+                                  },
+                                  height: "100%",
+                                  width: "100%",
+                                }}
+                              />
+                            ) : (
+                              <div className="flex items-center justify-center h-full text-slate-400 text-xs">
+                                <button
+                                  type="button"
+                                  onClick={() => handlePrepareOnlyOfficeDoc(true)}
+                                  className="px-3 py-1.5 rounded-lg bg-orange-600 text-white font-bold"
+                                >
+                                  بارگذاری ONLYOFFICE
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Right Half: Live Letterhead Paper */}
+                        <div className="w-full md:w-1/2 h-1/2 md:h-full p-4 overflow-y-auto bg-slate-200 dark:bg-slate-950 flex justify-center custom-scrollbar">
+                          <div
+                            className="bg-white dark:bg-gray-900 shadow-xl border border-slate-300 dark:border-slate-800 rounded-sm p-6 w-full max-w-lg text-right my-auto"
+                            dir="rtl"
+                          >
+                            <div className="text-xs font-bold text-slate-400 mb-2 border-b pb-1">
+                              پیش‌نمایش زنده سربرگ اداری
+                            </div>
                             <ReactQuill
-                              ref={quillRef}
                               theme="snow"
                               value={newLetterForm.content}
                               onChange={(val) =>
@@ -5627,36 +6556,71 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                                   content: val,
                                 })
                               }
-                              placeholder="متن رسمی و اداری خود را اینجا بنویسید..."
-                              className="text-sm border-none ql-editor-borderless flex-1"
-                              modules={{
-                                toolbar: "#letter-custom-quill-toolbar",
-                              }}
+                              className="text-sm border-none ql-editor-borderless"
                             />
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
-                            {/* Realtime Stats Display */}
-                            <div className="absolute bottom-3 left-4 select-none bg-slate-50 dark:bg-slate-800 border dark:border-white/5 rounded px-2 py-1 text-[10px] text-slate-400 dark:text-slate-300 font-bold flex items-center gap-2 shadow-sm pointer-events-none">
-                              <span>
-                                کلمات:{" "}
-                                <b className="text-slate-700 dark:text-white font-mono">
-                                  {wCount}
-                                </b>
-                              </span>
-                              <span className="text-slate-300 dark:text-slate-700">
-                                |
-                              </span>
-                              <span>
-                                کاراکترها:{" "}
-                                <b className="text-slate-700 dark:text-white font-mono">
-                                  {cCount}
-                                </b>
-                              </span>
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
                   </div>
+
+                  {/* ONLYOFFICE Settings Modal */}
+                  {showOnlyOfficeSettingsModal && (
+                    <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+                      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-300 dark:border-slate-800 p-6 max-w-md w-full shadow-2xl text-right animate-scale-up">
+                        <div className="flex items-center justify-between pb-3 border-b dark:border-slate-800 mb-4">
+                          <div className="flex items-center gap-2 font-black text-slate-900 dark:text-white">
+                            <Building2 size={18} className="text-orange-500" />
+                            <span>تنظیمات سرور ONLYOFFICE Docs</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowOnlyOfficeSettingsModal(false)}
+                            className="text-slate-400 hover:text-slate-600 dark:hover:text-white"
+                          >
+                            <X size={18} />
+                          </button>
+                        </div>
+
+                        <div className="space-y-4 text-xs">
+                          <div>
+                            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                              آدرس سرور ONLYOFFICE Document Server:
+                            </label>
+                            <input
+                              type="text"
+                              value={customDocServerInput}
+                              onChange={(e) => setCustomDocServerInput(e.target.value)}
+                              placeholder="https://documentserver.onlyoffice.com یا http://your-server:8080"
+                              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border dark:border-slate-700 rounded-xl font-mono text-xs text-slate-900 dark:text-white"
+                              dir="ltr"
+                            />
+                            <p className="text-[11px] text-slate-400 mt-1">
+                              به طور پیش‌فرض از سرور رسمی ابری ONLYOFFICE استفاده می‌شود. اگر سرور لوکال یا داکر اختصاصی دارید، آدرس آن را وارد نمایید.
+                            </p>
+                          </div>
+
+                          <div className="flex justify-end gap-2 pt-2">
+                            <button
+                              type="button"
+                              onClick={() => handleSaveOnlyOfficeServerUrl("https://documentserver.onlyoffice.com")}
+                              className="px-3 py-1.5 rounded-xl border dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
+                            >
+                              بازنشانی به سرور پیش‌فرض
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveOnlyOfficeServerUrl(customDocServerInput)}
+                              className="px-4 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold"
+                            >
+                              ذخیره و اتصال
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Microsoft Word / Google Docs Style Bottom Status Bar */}
                   <div className="bg-slate-100 dark:bg-slate-900 border-t border-slate-300 dark:border-slate-800 px-4 py-1.5 flex flex-wrap items-center justify-between text-[11px] text-slate-600 dark:text-slate-400 select-none shrink-0">

@@ -8496,10 +8496,103 @@ app.post('/api/secretariat/import-docx', async (req, res) => {
     }
 });
 
-// Quick export letter content to Word .docx on the fly
-app.post('/api/secretariat/quick-docx', async (req, res) => {
+// Import Google Docs document content directly into Secretariat Editor
+app.post('/api/secretariat/import-google-doc', async (req, res) => {
+    try {
+        const { urlOrId, token } = req.body;
+        if (!urlOrId) {
+            return res.status(400).json({ error: 'لینک یا شناسه سند Google Docs الزامی است.' });
+        }
+
+        let docId = String(urlOrId).trim();
+        const match = docId.match(/\/document\/d\/([a-zA-Z0-9-_]+)/);
+        if (match) {
+            docId = match[1];
+        }
+
+        const headers = {};
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        try {
+            const exportUrl = `https://docs.google.com/document/d/${docId}/export?format=html`;
+            const response = await axios.get(exportUrl, {
+                headers,
+                responseType: 'text',
+                timeout: 12000,
+                maxRedirects: 5
+            });
+
+            if (response.data) {
+                let html = response.data;
+                const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+                if (bodyMatch) {
+                    html = bodyMatch[1];
+                }
+                return res.json({
+                    success: true,
+                    docId,
+                    html: html
+                });
+            }
+        } catch (fetchErr) {
+            if (token) {
+                try {
+                    const apiRes = await axios.get(`https://docs.googleapis.com/v1/documents/${docId}`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    const docData = apiRes.data;
+                    let textContent = '';
+                    if (docData.body && docData.body.content) {
+                        for (const elem of docData.body.content) {
+                            if (elem.paragraph) {
+                                const pText = elem.paragraph.elements?.map(e => e.textRun?.content || '').join('') || '';
+                                if (pText.trim()) textContent += `<p>${pText}</p>`;
+                            }
+                        }
+                    }
+                    return res.json({
+                        success: true,
+                        docId,
+                        title: docData.title,
+                        html: textContent || '<p>محتوایی یافت نشد</p>'
+                    });
+                } catch (apiErr) {
+                    // fall through
+                }
+            }
+        }
+
+        res.status(400).json({ 
+            error: 'امکان استخراج خودکار سند وجود ندارد. لطفاً مطمئن شوید دسترسی لینک روی «هرکس دارای پیوند است» (Anyone with the link) یا Viewer قرار دارد، یا متن را در گوگل داکس کپی کرده و پیست نمایید.' 
+        });
+    } catch (e) {
+        console.error("POST /api/secretariat/import-google-doc error:", e);
+        res.status(500).json({
+            error: 'خطا در بارگذاری محتوای سند از Google Docs: ' + e.message
+        });
+    }
+});
+
+// ONLYOFFICE Document Server Integration Endpoints
+const onlyOfficeDocsCache = new Map();
+
+// Periodic cleanup of stale ONLYOFFICE documents (older than 24h)
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, item] of onlyOfficeDocsCache.entries()) {
+        if (now - item.updatedAt > 24 * 60 * 60 * 1000) {
+            onlyOfficeDocsCache.delete(key);
+        }
+    }
+}, 60 * 60 * 1000);
+
+// Prepare or generate docx for ONLYOFFICE Document Editor
+app.post('/api/secretariat/onlyoffice/prepare', async (req, res) => {
     try {
         const {
+            letterId = '',
             subject = 'نامه اداری',
             content = '',
             receiver = '',
@@ -8518,6 +8611,7 @@ app.post('/api/secretariat/quick-docx', async (req, res) => {
         const companySettings = (db.secretariatSettings || []).find(s => s.companyId === (company?.id || companyId));
 
         const letter = {
+            id: letterId,
             subject,
             content,
             receiver,
@@ -8538,14 +8632,135 @@ app.post('/api/secretariat/quick-docx', async (req, res) => {
             noLetterhead
         );
 
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-        const safeNum = String(letterNumber || 'Draft').replace(/[\/\\]/g, '_');
-        const asciiFilename = `Letter_${safeNum}.docx`;
-        const encodedFilename = encodeURIComponent(`Letter_${safeNum}.docx`);
-        res.setHeader('Content-Disposition', `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`);
-        res.send(docBuffer);
+        const docKey = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        onlyOfficeDocsCache.set(docKey, {
+            letterId,
+            docBuffer,
+            htmlContent: content,
+            subject,
+            updatedAt: Date.now()
+        });
+
+        // Determine protocol and host for ONLYOFFICE to fetch the docx
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+        const host = req.headers['x-forwarded-host'] || req.get('host');
+        const fileUrl = `${protocol}://${host}/api/secretariat/onlyoffice/file/${docKey}`;
+        const callbackUrl = `${protocol}://${host}/api/secretariat/onlyoffice/callback?key=${docKey}`;
+
+        const safeTitle = (subject || 'letter').replace(/[^a-zA-Z0-9_\u0600-\u06FF-]/g, '_');
+
+        res.json({
+            docKey,
+            fileUrl,
+            callbackUrl,
+            title: `${safeTitle}.docx`,
+            fileType: 'docx',
+            documentType: 'word',
+            htmlContent: content
+        });
     } catch (e) {
-        console.error("POST /api/secretariat/quick-docx error:", e);
+        console.error("POST /api/secretariat/onlyoffice/prepare error:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Serve DOCX file to ONLYOFFICE Document Server
+app.get('/api/secretariat/onlyoffice/file/:docKey', (req, res) => {
+    try {
+        const { docKey } = req.params;
+        const item = onlyOfficeDocsCache.get(docKey);
+        if (!item || !item.docBuffer) {
+            return res.status(404).send('Document not found or expired');
+        }
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(item.subject || 'document')}.docx"`);
+        res.send(item.docBuffer);
+    } catch (e) {
+        console.error("GET /api/secretariat/onlyoffice/file error:", e);
+        res.status(500).send('Error serving document');
+    }
+});
+
+// ONLYOFFICE Document Server Callback endpoint (saves edits back)
+app.post('/api/secretariat/onlyoffice/callback', async (req, res) => {
+    try {
+        const docKey = req.query.key;
+        const { status, url } = req.body;
+
+        // status 2 = doc ready for saving, status 6 = force save
+        if ((status === 2 || status === 6) && url && docKey) {
+            const resp = await fetch(url);
+            if (resp.ok) {
+                const arrayBuffer = await resp.arrayBuffer();
+                const buffer = Buffer.from(arrayBuffer);
+
+                // Convert updated DOCX to HTML
+                let updatedHtml = '';
+                try {
+                    const result = await mammoth.convertToHtml({ buffer });
+                    updatedHtml = result.value || '';
+                } catch (convErr) {
+                    console.error("Mammoth conversion error:", convErr);
+                }
+
+                const cached = onlyOfficeDocsCache.get(docKey) || {};
+                onlyOfficeDocsCache.set(docKey, {
+                    ...cached,
+                    docBuffer: buffer,
+                    htmlContent: updatedHtml || cached.htmlContent,
+                    updatedAt: Date.now()
+                });
+
+                // If associated with a saved letter, update database
+                if (cached.letterId) {
+                    const db = getDb();
+                    const letterIndex = (db.secretariatLetters || []).findIndex(l => l.id === cached.letterId);
+                    if (letterIndex !== -1 && updatedHtml) {
+                        db.secretariatLetters[letterIndex].content = updatedHtml;
+                        db.secretariatLetters[letterIndex].updatedAt = Date.now();
+                        saveDb(db);
+                    }
+                }
+            }
+        }
+
+        // ONLYOFFICE expects { error: 0 } response
+        res.json({ error: 0 });
+    } catch (e) {
+        console.error("POST /api/secretariat/onlyoffice/callback error:", e);
+        res.json({ error: 0 });
+    }
+});
+
+// Retrieve latest synchronized content from ONLYOFFICE
+app.get('/api/secretariat/onlyoffice/get-content/:docKey', (req, res) => {
+    try {
+        const { docKey } = req.params;
+        const item = onlyOfficeDocsCache.get(docKey);
+        if (!item) {
+            return res.status(404).json({ error: 'Document session not found' });
+        }
+        res.json({
+            htmlContent: item.htmlContent,
+            updatedAt: item.updatedAt
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Convert uploaded DOCX to HTML
+app.post('/api/secretariat/onlyoffice/convert-docx-to-html', async (req, res) => {
+    try {
+        const { base64Docx } = req.body;
+        if (!base64Docx) {
+            return res.status(400).json({ error: 'محتوای فایل ارسالی خالی است' });
+        }
+        const buffer = Buffer.from(base64Docx, 'base64');
+        const result = await mammoth.convertToHtml({ buffer });
+        res.json({ html: result.value || '' });
+    } catch (e) {
+        console.error("convert-docx-to-html error:", e);
         res.status(500).json({ error: e.message });
     }
 });

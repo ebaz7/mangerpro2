@@ -20,6 +20,7 @@ if (proxyUrl) {
     }
 }
 
+import http from 'http';
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
@@ -8572,6 +8573,70 @@ app.post('/api/secretariat/import-google-doc', async (req, res) => {
         res.status(500).json({
             error: 'خطا در بارگذاری محتوای سند از Google Docs: ' + e.message
         });
+    }
+});
+
+// Check ONLYOFFICE Document Server health
+app.get('/api/secretariat/onlyoffice/health', async (req, res) => {
+    const targetBase = process.env.ONLYOFFICE_DOC_SERVER_INTERNAL_URL || 'http://127.0.0.1:8088';
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        const resp = await fetch(`${targetBase}/web-apps/apps/api/documents/api.js`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (resp.ok) {
+            return res.json({ online: true, url: targetBase });
+        }
+        res.json({ online: false, status: resp.status, url: targetBase });
+    } catch (e) {
+        res.json({ online: false, error: e.message, url: targetBase });
+    }
+});
+
+// Reverse Proxy for ONLYOFFICE (supports HTTPS-to-HTTP local bridge, eliminating browser Mixed Content blocking)
+app.use('/onlyoffice-proxy', (req, res) => {
+    const targetBase = process.env.ONLYOFFICE_DOC_SERVER_INTERNAL_URL || 'http://127.0.0.1:8088';
+    try {
+        const parsedTarget = new URL(targetBase);
+        const targetPath = req.originalUrl.replace(/^\/onlyoffice-proxy/, '') || '/';
+
+        const clientHeaders = { ...req.headers };
+        delete clientHeaders.host;
+        delete clientHeaders.connection;
+
+        const options = {
+            hostname: parsedTarget.hostname,
+            port: parsedTarget.port || 80,
+            path: targetPath,
+            method: req.method,
+            headers: {
+                ...clientHeaders,
+                host: parsedTarget.host,
+                'x-forwarded-host': req.get('host'),
+                'x-forwarded-proto': req.headers['x-forwarded-proto'] || req.protocol || 'http',
+            }
+        };
+
+        const proxyReq = http.request(options, (proxyRes) => {
+            res.writeHead(proxyRes.statusCode, proxyRes.headers);
+            proxyRes.pipe(res, { end: true });
+        });
+
+        proxyReq.on('error', (err) => {
+            if (!res.headersSent) {
+                res.status(502).json({
+                    error: 'اتصال به سرور محلی ONLYOFFICE برقرار نشد. لطفاً مطمئن شوید سرویس داکر یا کانتینر ONLYOFFICE روی پورت 8088 فعال است.',
+                    details: err.message,
+                    target: targetBase
+                });
+            }
+        });
+
+        req.pipe(proxyReq, { end: true });
+    } catch (err) {
+        if (!res.headersSent) {
+            res.status(500).json({ error: err.message });
+        }
     }
 });
 

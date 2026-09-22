@@ -426,11 +426,18 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
   const [editorViewMode, setEditorViewMode] = useState<"office" | "onlyoffice" | "google-docs" | "split">("office");
   const [onlyOfficeDocServerUrl, setOnlyOfficeDocServerUrl] = useState<string>(() => {
     const saved = typeof window !== "undefined" ? localStorage.getItem("ONLYOFFICE_DOC_SERVER_URL") : null;
-    if (saved && saved.trim()) return saved.trim();
-    if (typeof window !== "undefined" && window.location.hostname && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
-      return `http://${window.location.hostname}:8088`;
+    if (saved && saved.trim()) {
+      const clean = saved.trim();
+      // If site is loaded over HTTPS, auto-migrate insecure HTTP direct URLs to safe local proxy to prevent Mixed Content blocking
+      if (typeof window !== "undefined" && window.location.protocol === "https:" && clean.startsWith("http://") && !clean.includes("localhost") && !clean.includes("127.0.0.1")) {
+        return `${window.location.origin}/onlyoffice-proxy`;
+      }
+      return clean;
     }
-    return "http://localhost:8088";
+    if (typeof window !== "undefined" && window.location.origin) {
+      return `${window.location.origin}/onlyoffice-proxy`;
+    }
+    return "/onlyoffice-proxy";
   });
   const [onlyOfficeDocKey, setOnlyOfficeDocKey] = useState<string>("");
   const [onlyOfficeFileUrl, setOnlyOfficeFileUrl] = useState<string>("");
@@ -7558,10 +7565,27 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <button
                       type="button"
+                      onClick={() => {
+                        const origin = typeof window !== "undefined" ? window.location.origin : "";
+                        setCustomDocServerInput(`${origin}/onlyoffice-proxy`);
+                      }}
+                      className="p-2.5 rounded-xl border-2 border-emerald-500/80 bg-emerald-50/60 dark:bg-emerald-950/30 text-right transition-all sm:col-span-2 shadow-xs"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-emerald-800 dark:text-emerald-300 block text-[11px]">اتصال از طریق پروکسی امن سامانه (پیش‌فرض پیشنهادی HTTPS - بدون مسدودی مرورگر)</span>
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-extrabold">توصیه شده</span>
+                      </div>
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono" dir="ltr">
+                        {typeof window !== "undefined" ? `${window.location.origin}/onlyoffice-proxy` : "/onlyoffice-proxy"}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => setCustomDocServerInput("http://localhost:8088")}
                       className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-orange-500 bg-slate-50 dark:bg-slate-800/80 text-right transition-colors"
                     >
-                      <span className="font-bold text-slate-800 dark:text-white block text-[11px]">داکر روی همین سیستم</span>
+                      <span className="font-bold text-slate-800 dark:text-white block text-[11px]">پورت مستقیم داکر روی لوکال‌هاست</span>
                       <span className="text-[10px] text-slate-400 font-mono" dir="ltr">http://localhost:8088</span>
                     </button>
 

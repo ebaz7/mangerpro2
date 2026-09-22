@@ -423,7 +423,20 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
   const editorImageInputRef = useRef<HTMLInputElement>(null);
 
   // --- Workspace View Mode: Office Editor (Primary/Default - Zero Config & Offline), ONLYOFFICE, Live Google Docs, or Split View ---
-  const [editorViewMode, setEditorViewMode] = useState<"office" | "onlyoffice" | "google-docs" | "split">("office");
+  const [editorViewMode, setEditorViewMode] = useState<"office" | "onlyoffice" | "google-docs" | "split">(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("SECRETARIAT_PREFERRED_EDITOR_MODE") : null;
+    if (saved === "office" || saved === "onlyoffice" || saved === "google-docs" || saved === "split") {
+      return saved;
+    }
+    return "office";
+  });
+
+  const changeEditorViewMode = (mode: "office" | "onlyoffice" | "google-docs" | "split") => {
+    setEditorViewMode(mode);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("SECRETARIAT_PREFERRED_EDITOR_MODE", mode);
+    }
+  };
   const [onlyOfficeDocServerUrl, setOnlyOfficeDocServerUrl] = useState<string>(() => {
     const saved = typeof window !== "undefined" ? localStorage.getItem("ONLYOFFICE_DOC_SERVER_URL") : null;
     if (saved && saved.trim()) {
@@ -5536,7 +5549,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                       <div className="flex items-center bg-slate-200/80 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-300/60 dark:border-slate-700 text-xs shadow-xs">
                         <button
                           type="button"
-                          onClick={() => setEditorViewMode("office")}
+                          onClick={() => changeEditorViewMode("office")}
                           className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-extrabold transition-all ${
                             editorViewMode === "office"
                               ? "bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 shadow-xs ring-1 ring-blue-500/30"
@@ -5546,13 +5559,13 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                         >
                           <FileText size={13} className={editorViewMode === "office" ? "text-blue-600 dark:text-blue-400" : "text-slate-500"} />
                           <span>ویرایشگر اداری و ورد</span>
-                          <span className="text-[9px] bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded-full font-bold hidden sm:inline">آماده کار</span>
+                          <span className="text-[9px] bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded-full font-bold hidden sm:inline">آفلاین (اصلی)</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={() => {
-                            setEditorViewMode("onlyoffice");
+                            changeEditorViewMode("onlyoffice");
                             setOnlyOfficeLoadError(null);
                             handlePrepareOnlyOfficeDoc();
                           }}
@@ -5569,7 +5582,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => setEditorViewMode("google-docs")}
+                          onClick={() => changeEditorViewMode("google-docs")}
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-bold transition-all ${
                             editorViewMode === "google-docs"
                               ? "bg-sky-600 text-white shadow-xs"
@@ -5584,7 +5597,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            setEditorViewMode("split");
+                            changeEditorViewMode("split");
                             handlePrepareOnlyOfficeDoc();
                           }}
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-bold transition-all ${
@@ -6275,7 +6288,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                               <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full pt-2">
                                 <button
                                   type="button"
-                                  onClick={() => setEditorViewMode("office")}
+                                  onClick={() => changeEditorViewMode("office")}
                                   className="w-full sm:flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold shadow-md flex items-center justify-center gap-2 text-xs transition-all"
                                 >
                                   <FileText size={15} />

@@ -425,7 +425,12 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
   // --- Workspace View Mode: Office Editor (Primary/Default - Zero Config & Offline), ONLYOFFICE, Live Google Docs, or Split View ---
   const [editorViewMode, setEditorViewMode] = useState<"office" | "onlyoffice" | "google-docs" | "split">("office");
   const [onlyOfficeDocServerUrl, setOnlyOfficeDocServerUrl] = useState<string>(() => {
-    return localStorage.getItem("ONLYOFFICE_DOC_SERVER_URL") || "https://documentserver.onlyoffice.com";
+    const saved = typeof window !== "undefined" ? localStorage.getItem("ONLYOFFICE_DOC_SERVER_URL") : null;
+    if (saved && saved.trim()) return saved.trim();
+    if (typeof window !== "undefined" && window.location.hostname && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+      return `http://${window.location.hostname}:8088`;
+    }
+    return "http://localhost:8088";
   });
   const [onlyOfficeDocKey, setOnlyOfficeDocKey] = useState<string>("");
   const [onlyOfficeFileUrl, setOnlyOfficeFileUrl] = useState<string>("");
@@ -586,12 +591,16 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
   // Image manipulation in editor
   // Synchronize editor content with form state
   const syncEditorContent = () => {
-    const quill = quillRef.current?.getEditor();
-    if (quill) {
-      setNewLetterForm((prev) => ({
-        ...prev,
-        content: quill.root.innerHTML,
-      }));
+    try {
+      const quill = quillRef.current?.getEditor();
+      if (quill && quill.root && typeof quill.root.innerHTML === "string") {
+        setNewLetterForm((prev) => ({
+          ...prev,
+          content: quill.root.innerHTML,
+        }));
+      }
+    } catch (e) {
+      console.warn("syncEditorContent guard:", e);
     }
   };
 
@@ -605,31 +614,37 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
 
   // Listen to Quill Editor image click to select image & open toolbar
   useEffect(() => {
-    const quill = quillRef.current?.getEditor();
-    if (!quill) return;
+    try {
+      const quill = quillRef.current?.getEditor();
+      if (!quill || !quill.root) return;
 
-    const handleEditorClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target && target.tagName === "IMG") {
-        const img = target as HTMLImageElement;
-        setSelectedImgEl(img);
+      const handleEditorClick = (e: MouseEvent) => {
+        const target = e.target as HTMLElement;
+        if (target && target.tagName === "IMG") {
+          const img = target as HTMLImageElement;
+          setSelectedImgEl(img);
 
-        const opVal = img.style.opacity ? Math.round(parseFloat(img.style.opacity) * 100) : 100;
-        setSelectedImgOpacity(opVal);
-        setSelectedImgIsWatermark(img.style.position === "absolute");
-        setSelectedImgMultiply(img.style.mixBlendMode === "multiply");
-        setSelectedImgPixelWidth(img.offsetWidth || 350);
-      } else if (!target.closest("#image-floating-toolbar") && !target.closest(".img-resize-handle")) {
-        setSelectedImgEl(null);
+          const opVal = img.style.opacity ? Math.round(parseFloat(img.style.opacity) * 100) : 100;
+          setSelectedImgOpacity(opVal);
+          setSelectedImgIsWatermark(img.style.position === "absolute");
+          setSelectedImgMultiply(img.style.mixBlendMode === "multiply");
+          setSelectedImgPixelWidth(img.offsetWidth || 350);
+        } else if (!target.closest("#image-floating-toolbar") && !target.closest(".img-resize-handle")) {
+          setSelectedImgEl(null);
+        }
+      };
+
+      const root = quill.root;
+      if (root && typeof root.addEventListener === "function") {
+        root.addEventListener("click", handleEditorClick);
+        return () => {
+          root.removeEventListener("click", handleEditorClick);
+        };
       }
-    };
-
-    const root = quill.root;
-    root.addEventListener("click", handleEditorClick);
-    return () => {
-      root.removeEventListener("click", handleEditorClick);
-    };
-  }, [quillRef.current, newLetterForm.content]);
+    } catch (e) {
+      console.warn("quill click listener guard:", e);
+    }
+  }, [quillRef.current, newLetterForm.content, editorViewMode]);
 
   // Image manipulation in editor
   const updateSelectedImageWidth = (widthPercent: string) => {

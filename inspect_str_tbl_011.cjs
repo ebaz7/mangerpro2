@@ -1,10 +1,13 @@
 const axios = require('axios');
 async function run() {
+    const sql = `SELECT TOP 5 * FROM STR_TBL_011`;
     try {
         const res = await axios.post('http://80.210.31.176:5000/api/external/v1/query', {
-            query: `SELECT * FROM ACT_TBL_007 WHERE Field_004 = '11' AND Field_008 = 1`
+            query: sql
         }, { headers: { 'Authorization': 'Bearer s_gate_live_vgr182bwtpoa' }});
-        console.log("ACT_TBL_007 person groups:", res.data.data);
-    } catch(e) { console.error(e.response?.data || e.message); }
+        console.log(JSON.stringify(res.data.data, null, 2));
+    } catch(e) {
+        console.error(e.message);
+    }
 }
 run();

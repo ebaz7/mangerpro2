@@ -462,6 +462,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
   const [onlyOfficeLoadError, setOnlyOfficeLoadError] = useState<string | null>(null);
   const [showOnlyOfficeSettingsModal, setShowOnlyOfficeSettingsModal] = useState<boolean>(false);
   const [customDocServerInput, setCustomDocServerInput] = useState<string>("");
+  const [onlyOfficeHealthStatus, setOnlyOfficeHealthStatus] = useState<any>(null);
+  const [checkingOnlyOfficeHealth, setCheckingOnlyOfficeHealth] = useState<boolean>(false);
 
   const [activeGoogleDocUrl, setActiveGoogleDocUrl] = useState<string>("https://docs.google.com/document/u/0/");
   const [googleDocInputUrl, setGoogleDocInputUrl] = useState<string>("");
@@ -886,10 +888,33 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
   };
 
   // --- ONLYOFFICE Document Server Handlers ---
+  const checkOnlyOfficeHealth = async (targetUrl?: string) => {
+    try {
+      setCheckingOnlyOfficeHealth(true);
+      const query = targetUrl ? `?target=${encodeURIComponent(targetUrl)}` : "";
+      const res = await fetch(`/api/secretariat/onlyoffice/health${query}`);
+      if (res.ok) {
+        const data = await res.json();
+        setOnlyOfficeHealthStatus(data);
+        return data;
+      }
+    } catch (err) {
+      console.error("ONLYOFFICE Health check error:", err);
+    } finally {
+      setCheckingOnlyOfficeHealth(false);
+    }
+    return null;
+  };
+
   const handlePrepareOnlyOfficeDoc = async (forceRefresh = false) => {
     if (onlyOfficeDocKey && !forceRefresh) return;
     try {
       setOnlyOfficeLoading(true);
+      setOnlyOfficeLoadError(null);
+
+      // Run health check in background
+      checkOnlyOfficeHealth(onlyOfficeDocServerUrl);
+
       const res = await fetch("/api/secretariat/onlyoffice/prepare", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -904,8 +929,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
           signers: newLetterForm.signers || [],
           paperSize: newLetterForm.paperSize || "A4",
           orientation: newLetterForm.orientation || "portrait",
-          companyId: newLetterForm.companyId || selectedCompany?.id || "",
-          noLetterhead: newLetterForm.noLetterhead || false,
+          companyId: (newLetterForm as any).companyId || selectedCompany?.id || "",
+          noLetterhead: (newLetterForm as any).noLetterhead || false,
         }),
       });
 
@@ -921,6 +946,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
       setOnlyOfficeInitialized(true);
     } catch (err: any) {
       console.error("ONLYOFFICE Prepare error:", err);
+      setOnlyOfficeLoadError(err.message || "خطا در برقراری ارتباط با سرور اسناد ONLYOFFICE");
     } finally {
       setOnlyOfficeLoading(false);
     }
@@ -955,10 +981,11 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
   };
 
   const handleSaveOnlyOfficeServerUrl = (url: string) => {
-    let clean = url.trim();
+    let clean = url.trim().replace(/\/+$/, "");
     if (!clean) clean = "https://documentserver.onlyoffice.com";
     setOnlyOfficeDocServerUrl(clean);
     localStorage.setItem("ONLYOFFICE_DOC_SERVER_URL", clean);
+    setOnlyOfficeLoadError(null);
     setShowOnlyOfficeSettingsModal(false);
     handlePrepareOnlyOfficeDoc(true);
   };
@@ -6274,37 +6301,60 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                         {/* ONLYOFFICE Document Editor Component Frame */}
                         <div className="flex-1 w-full h-full relative bg-slate-900 flex flex-col items-center justify-center p-4">
                           {onlyOfficeLoadError ? (
-                            <div className="flex flex-col items-center gap-4 text-center max-w-lg p-6 bg-slate-800/90 rounded-2xl border border-red-500/40 shadow-2xl animate-fade-in text-white">
+                            <div className="flex flex-col items-center gap-4 text-center max-w-xl p-6 bg-slate-800/95 rounded-2xl border border-red-500/40 shadow-2xl animate-fade-in text-white">
                               <div className="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400">
                                 <AlertTriangle size={28} />
                               </div>
-                              <div>
-                                <h4 className="font-black text-white text-base mb-1.5">عدم برقراری ارتباط با سرور خارجی ONLYOFFICE</h4>
+                              <div className="space-y-1.5">
+                                <h4 className="font-black text-white text-base">عدم برقراری ارتباط با سرور ONLYOFFICE</h4>
                                 <p className="text-slate-300 text-xs leading-relaxed">
-                                  سرور عمومی آنلاین ({onlyOfficeDocServerUrl}) در اینترنت/شبکه شما در دسترس نیست یا به دلیل محدودیت‌های اینترنت مسدود شده است.
+                                  آدرس فعلی سرور: <code className="bg-slate-900 px-2 py-0.5 rounded text-orange-300 font-mono" dir="ltr">{onlyOfficeDocServerUrl}</code>
                                 </p>
+                                {(onlyOfficeDocServerUrl.includes("onlyoffice-proxy") || onlyOfficeDocServerUrl.includes("8088") || onlyOfficeDocServerUrl.includes("localhost")) && (
+                                  <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700/80 text-right text-xs text-amber-200 mt-2 space-y-1">
+                                    <span className="font-bold block text-amber-300">راهنمای راه‌اندازی سرور محلی (آفلاین):</span>
+                                    <p className="text-[11px] text-slate-300">
+                                      سرویس داکر ONLYOFFICE روی پورت 8088 سرور شما در حال اجرا نیست. برای فعال‌سازی کافیست دستور زیر را در CMD یا ترمینال سرور خود اجرا کنید:
+                                    </p>
+                                    <div className="bg-black/60 p-2 rounded text-[10px] text-emerald-400 font-mono select-all overflow-x-auto" dir="ltr">
+                                      docker run -i -t -d -p 8088:80 --name onlyoffice-documentserver --restart=always -e JWT_ENABLED=false -e ALLOW_PRIVATE_IP_ADDRESS=true -e USE_UNAUTHORIZED_STORAGE=true onlyoffice/documentserver
+                                    </div>
+                                  </div>
+                                )}
                               </div>
 
-                              <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full pt-2">
+                              <div className="flex flex-col gap-2 w-full pt-2">
                                 <button
                                   type="button"
-                                  onClick={() => changeEditorViewMode("office")}
-                                  className="w-full sm:flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold shadow-md flex items-center justify-center gap-2 text-xs transition-all"
+                                  onClick={() => handleSaveOnlyOfficeServerUrl("https://documentserver.onlyoffice.com")}
+                                  className="w-full px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-extrabold shadow-md flex items-center justify-center gap-2 text-xs transition-all"
                                 >
-                                  <FileText size={15} />
-                                  <span>سوئیچ به ویرایشگر فوق‌پیشرفته داخلی (آفلاین)</span>
+                                  <Sparkles size={16} />
+                                  <span>اتصال ۱-کلیکی به سرور آنلاین عمومی ONLYOFFICE (بدون نیاز به داکر)</span>
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setCustomDocServerInput(onlyOfficeDocServerUrl);
-                                    setShowOnlyOfficeSettingsModal(true);
-                                  }}
-                                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold border border-slate-600 text-xs transition-colors flex items-center justify-center gap-1.5"
-                                >
-                                  <SlidersHorizontal size={14} />
-                                  <span>تنظیم سرور داکر / محلی</span>
-                                </button>
+
+                                <div className="flex flex-col sm:flex-row gap-2 w-full">
+                                  <button
+                                    type="button"
+                                    onClick={() => changeEditorViewMode("office")}
+                                    className="w-full sm:flex-1 px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold border border-slate-600 flex items-center justify-center gap-2 text-xs transition-all"
+                                  >
+                                    <FileText size={15} />
+                                    <span>ویرایشگر اداری داخلی (آفلاین)</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setCustomDocServerInput(onlyOfficeDocServerUrl);
+                                      setShowOnlyOfficeSettingsModal(true);
+                                      checkOnlyOfficeHealth(onlyOfficeDocServerUrl);
+                                    }}
+                                    className="w-full sm:w-auto px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold border border-slate-600 text-xs transition-colors flex items-center justify-center gap-1.5"
+                                  >
+                                    <SlidersHorizontal size={14} />
+                                    <span>تنظیمات و تست سرور</span>
+                                  </button>
+                                </div>
                               </div>
                               <button
                                 type="button"
@@ -6314,7 +6364,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                                 }}
                                 className="text-[11px] text-slate-400 hover:text-slate-200 underline mt-1"
                               >
-                                تلاش مجدد برای اتصال به سرور
+                                تلاش مجدد برای اتصال
                               </button>
                             </div>
                           ) : onlyOfficeLoading ? (
@@ -6342,7 +6392,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                                   },
                                   documentType: "word",
                                   editorConfig: {
-                                    lang: "fa",
+                                    lang: "fa" as any,
                                     mode: "edit",
                                     callbackUrl: onlyOfficeCallbackUrl,
                                     customization: {
@@ -6356,7 +6406,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                                     },
                                     user: {
                                       id: currentUser?.id || "user-1",
-                                      name: currentUser?.name || "کاربر دبیرخانه",
+                                      name: (currentUser as any)?.name || (currentUser as any)?.fullName || "کاربر دبیرخانه",
                                     },
                                   },
                                   height: "100%",
@@ -6600,7 +6650,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                                   },
                                   documentType: "word",
                                   editorConfig: {
-                                    lang: "fa",
+                                    lang: "fa" as any,
                                     mode: "edit",
                                     callbackUrl: onlyOfficeCallbackUrl,
                                   },
@@ -7567,7 +7617,37 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                       className="flex-1 p-2.5 border rounded-xl border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-mono text-left text-xs"
                       dir="ltr"
                     />
+                    <button
+                      type="button"
+                      onClick={() => checkOnlyOfficeHealth(customDocServerInput)}
+                      disabled={checkingOnlyOfficeHealth}
+                      className="px-3 py-2.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded-xl font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 shrink-0"
+                    >
+                      <RefreshCw size={14} className={checkingOnlyOfficeHealth ? "animate-spin text-orange-500" : ""} />
+                      <span>تست اتصال</span>
+                    </button>
                   </div>
+
+                  {onlyOfficeHealthStatus && (
+                    <div className="mt-2 p-3 bg-slate-100 dark:bg-slate-800/90 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1.5 text-[11px]">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700 dark:text-slate-300">تست داکر محلی (پورت 8088):</span>
+                        {onlyOfficeHealthStatus.localServer?.ok ? (
+                          <span className="text-emerald-600 dark:text-emerald-400 font-extrabold flex items-center gap-1">🟢 فعال و آماده به کار</span>
+                        ) : (
+                          <span className="text-red-500 dark:text-red-400 font-bold flex items-center gap-1">🔴 خاموش / عدم پاسخ داکر</span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between border-t border-slate-200 dark:border-slate-700/80 pt-1.5">
+                        <span className="font-bold text-slate-700 dark:text-slate-300">تست سرور عمومی آنلاین:</span>
+                        {onlyOfficeHealthStatus.publicServer?.ok ? (
+                          <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">🟢 آنلاین و در دسترس</span>
+                        ) : (
+                          <span className="text-slate-400 font-medium">⚪ نامشخص / مسدود</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Quick Presets */}

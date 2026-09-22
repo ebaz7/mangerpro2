@@ -8578,23 +8578,84 @@ app.post('/api/secretariat/import-google-doc', async (req, res) => {
 
 // Check ONLYOFFICE Document Server health
 app.get('/api/secretariat/onlyoffice/health', async (req, res) => {
-    const targetBase = process.env.ONLYOFFICE_DOC_SERVER_INTERNAL_URL || 'http://127.0.0.1:8088';
+    const localTargetBase = process.env.ONLYOFFICE_DOC_SERVER_INTERNAL_URL || 'http://127.0.0.1:8088';
+    const customTarget = req.query.target ? String(req.query.target).trim() : null;
+
+    let localOnline = false;
+    let customOnline = false;
+    let publicOnline = false;
+
+    // 1. Test local Docker on 8088
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
-        const resp = await fetch(`${targetBase}/web-apps/apps/api/documents/api.js`, { signal: controller.signal });
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const resp = await fetch(`${localTargetBase}/web-apps/apps/api/documents/api.js`, { signal: controller.signal });
         clearTimeout(timeoutId);
-        if (resp.ok) {
-            return res.json({ online: true, url: targetBase });
-        }
-        res.json({ online: false, status: resp.status, url: targetBase });
+        if (resp.ok) localOnline = true;
     } catch (e) {
-        res.json({ online: false, error: e.message, url: targetBase });
+        localOnline = false;
     }
+
+    // 2. Test custom target if provided
+    if (customTarget && customTarget !== localTargetBase) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 2500);
+            const targetUrl = customTarget.startsWith('http') ? customTarget : `http://${customTarget}`;
+            const resp = await fetch(`${targetUrl}/web-apps/apps/api/documents/api.js`, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (resp.ok) customOnline = true;
+        } catch (e) {
+            customOnline = false;
+        }
+    }
+
+    // 3. Test public demo server
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const resp = await fetch('https://documentserver.onlyoffice.com/web-apps/apps/api/documents/api.js', { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (resp.ok) publicOnline = true;
+    } catch (e) {
+        publicOnline = false;
+    }
+
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+
+    res.json({
+        online: localOnline || customOnline || publicOnline,
+        localDocker: {
+            online: localOnline,
+            url: localTargetBase,
+            proxyUrl: `${protocol}://${host}/onlyoffice-proxy`,
+            message: localOnline ? 'سرور داکر محلی فعال و آماده است' : 'کانتینر داکر روی پورت 8088 خاموش یا نصب نشده است'
+        },
+        customServer: customTarget ? {
+            online: customOnline,
+            url: customTarget
+        } : null,
+        publicDemo: {
+            online: publicOnline,
+            url: 'https://documentserver.onlyoffice.com',
+            message: publicOnline ? 'سرور آنلاین و دمو آماده استفاده است' : 'عدم دسترسی به سرور عمومی اینترنت'
+        },
+        recommendedUrl: localOnline ? `${protocol}://${host}/onlyoffice-proxy` : (publicOnline ? 'https://documentserver.onlyoffice.com' : `${protocol}://${host}/onlyoffice-proxy`)
+    });
 });
 
 // Reverse Proxy for ONLYOFFICE (supports HTTPS-to-HTTP local bridge, eliminating browser Mixed Content blocking)
 app.use('/onlyoffice-proxy', (req, res) => {
+    // CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', '*');
+
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+
     const targetBase = process.env.ONLYOFFICE_DOC_SERVER_INTERNAL_URL || 'http://127.0.0.1:8088';
     try {
         const parsedTarget = new URL(targetBase);
@@ -8618,12 +8679,24 @@ app.use('/onlyoffice-proxy', (req, res) => {
         };
 
         const proxyReq = http.request(options, (proxyRes) => {
-            res.writeHead(proxyRes.statusCode, proxyRes.headers);
+            const responseHeaders = { ...proxyRes.headers };
+
+            // Rewrite location header if redirecting
+            if (responseHeaders.location) {
+                responseHeaders.location = responseHeaders.location.replace(/^(\/|http:\/\/127\.0\.0\.1:8088\/|http:\/\/localhost:8088\/)/, '/onlyoffice-proxy/');
+            }
+
+            res.writeHead(proxyRes.statusCode, responseHeaders);
             proxyRes.pipe(res, { end: true });
         });
 
         proxyReq.on('error', (err) => {
             if (!res.headersSent) {
+                // If browser requested a script file (e.g. api.js), return valid JS fallback so script tag doesn't throw syntax error
+                if (req.originalUrl.includes('.js')) {
+                    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+                    return res.status(200).send('console.warn("ONLYOFFICE Local Proxy: Docker on port 8088 is offline."); window.__ONLYOFFICE_PROXY_OFFLINE__ = true;');
+                }
                 res.status(502).json({
                     error: 'اتصال به سرور محلی ONLYOFFICE برقرار نشد. لطفاً مطمئن شوید سرویس داکر یا کانتینر ONLYOFFICE روی پورت 8088 فعال است.',
                     details: err.message,
@@ -12431,6 +12504,44 @@ const server = app.listen(PORT, '0.0.0.0', () => {
         setupTaskRecurringReminders();
         sayanOrderAuto.initAutomationCron();
     }, 1000);
+});
+
+// WebSocket proxy support for ONLYOFFICE coauthoring and docservice
+server.on('upgrade', (req, socket, head) => {
+    if (req.url && (req.url.startsWith('/onlyoffice-proxy') || req.url.startsWith('/docservice') || req.url.startsWith('/spellchecker') || req.url.startsWith('/coauthoring'))) {
+        const targetBase = process.env.ONLYOFFICE_DOC_SERVER_INTERNAL_URL || 'http://127.0.0.1:8088';
+        try {
+            const parsedTarget = new URL(targetBase);
+            const targetPath = req.url.replace(/^\/onlyoffice-proxy/, '') || '/';
+            const proxyReq = http.request({
+                hostname: parsedTarget.hostname,
+                port: parsedTarget.port || 80,
+                path: targetPath,
+                method: req.method,
+                headers: {
+                    ...req.headers,
+                    host: parsedTarget.host,
+                    'x-forwarded-host': req.headers.host,
+                    'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'http',
+                }
+            });
+            proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+                socket.write(
+                    `HTTP/1.1 101 Switching Protocols\r\n` +
+                    Object.keys(proxyRes.headers).map(key => `${key}: ${proxyRes.headers[key]}`).join('\r\n') +
+                    '\r\n\r\n'
+                );
+                proxySocket.pipe(socket);
+                socket.pipe(proxySocket);
+            });
+            proxyReq.on('error', () => {
+                socket.destroy();
+            });
+            proxyReq.end();
+        } catch (e) {
+            socket.destroy();
+        }
+    }
 });
 
 server.on('error', (err) => {

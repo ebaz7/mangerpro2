@@ -5,6 +5,7 @@ import { X, Printer, Loader2, Share2, Search, Users, Smartphone, FileDown, Check
 import { apiCall } from '../services/apiService';
 import { getUsers } from '../services/authService';
 import { generatePdf } from '../utils/pdfGenerator'; 
+import { executeCrossPlatformPrint } from '../utils/mobilePrintService';
 import html2canvas from 'html2canvas';
 import { shareElementToChat } from '../services/chatShareService';
 
@@ -258,7 +259,14 @@ const PrintBijak: React.FC<PrintBijakProps> = ({ tx, onClose, settings, embed, f
             }
           `;
       }
-      window.print();
+      const el = document.getElementById(containerId);
+      if (el) {
+          executeCrossPlatformPrint(el, {
+              title: `بیجک خروج انبار ${tx.number || ''}`,
+              fileName: `Bijak_${tx.number}.pdf`,
+              orientation: 'portrait'
+          });
+      }
   };
 
   const handleDownloadPDF = async () => {

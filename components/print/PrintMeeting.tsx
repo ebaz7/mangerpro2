@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Printer, Loader2, FileDown, ZoomIn, ZoomOut, RotateCcw, MessageSquare } from 'lucide-react';
 import { generatePdf } from '../../utils/pdfGenerator';
+import { executeCrossPlatformPrint } from '../../utils/mobilePrintService';
 import { MeetingMinutes } from '../../types';
 import { shareElementToChat } from '../../services/chatShareService';
 
@@ -357,7 +358,19 @@ const PrintMeeting: React.FC<PrintMeetingProps> = ({ meeting, onClose }) => {
             <span>دانلود PDF</span>
           </button>
           
-          <button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white px-3 py-1.5 md:px-4 md:py-2 rounded-xl text-xs flex items-center gap-1.5 font-bold shadow-md transition-all">
+          <button 
+            onClick={() => {
+              const el = document.getElementById('meeting-print-area');
+              if (el) {
+                executeCrossPlatformPrint(el, {
+                  title: `صورتجلسه ${meeting.meetingNumber}`,
+                  fileName: `Meeting_${meeting.meetingNumber}.pdf`,
+                  orientation: 'portrait'
+                });
+              }
+            }} 
+            className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white px-3 py-1.5 md:px-4 md:py-2 rounded-xl text-xs flex items-center gap-1.5 font-bold shadow-md transition-all cursor-pointer"
+          >
             <Printer size={16}/>
             <span className="hidden sm:inline">چاپ</span>
           </button>

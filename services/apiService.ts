@@ -3,11 +3,99 @@ import { PaymentOrder, User, UserRole, SystemSettings, ChatMessage, ChatGroup, G
 import { INITIAL_ORDERS } from '../constants';
 import { Capacitor } from '@capacitor/core';
 
-// تنظیمات آدرس سرور
-let DEFAULT_SERVER_URL = 'https://dlkam.ir'; 
+// تنظیمات آدرس سرور با اولویت متغیر محیطی
+const ENV_API_URL = typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL;
+let DEFAULT_SERVER_URL = ENV_API_URL || 'https://dlkam.ir'; 
 
 export let serverTimeOffset = 0;
 export const getServerTime = (): number => Date.now() + serverTimeOffset;
+
+// Authentication Token & Refresh Token Management
+const AUTH_TOKEN_KEY = 'app_auth_token';
+const REFRESH_TOKEN_KEY = 'app_refresh_token';
+
+export const getAuthToken = (): string | null => {
+    try {
+        return localStorage.getItem(AUTH_TOKEN_KEY);
+    } catch {
+        return null;
+    }
+};
+
+export const setAuthToken = (token: string | null): void => {
+    try {
+        if (token) {
+            localStorage.setItem(AUTH_TOKEN_KEY, token);
+        } else {
+            localStorage.removeItem(AUTH_TOKEN_KEY);
+        }
+    } catch {}
+};
+
+export const getRefreshToken = (): string | null => {
+    try {
+        return localStorage.getItem(REFRESH_TOKEN_KEY);
+    } catch {
+        return null;
+    }
+};
+
+export const setRefreshToken = (token: string | null): void => {
+    try {
+        if (token) {
+            localStorage.setItem(REFRESH_TOKEN_KEY, token);
+        } else {
+            localStorage.removeItem(REFRESH_TOKEN_KEY);
+        }
+    } catch {}
+};
+
+// 401 Token Refresh Mutex & Queue
+let isRefreshingToken = false;
+let refreshTokenSubscribers: Array<(token: string | null) => void> = [];
+
+const subscribeTokenRefresh = (cb: (token: string | null) => void) => {
+    refreshTokenSubscribers.push(cb);
+};
+
+const onTokenRefreshed = (newToken: string | null) => {
+    refreshTokenSubscribers.forEach(cb => cb(newToken));
+    refreshTokenSubscribers = [];
+};
+
+const refreshAccessToken = async (): Promise<string | null> => {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) return null;
+
+    try {
+        let baseUrl = '';
+        const host = getServerHost();
+        if (Capacitor.isNativePlatform()) {
+            baseUrl = `${host || DEFAULT_SERVER_URL}/api`;
+        } else {
+            baseUrl = host ? `${host}/api` : '/api';
+        }
+
+        const res = await fetch(`${baseUrl}/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken })
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            const newToken = data.token || data.accessToken;
+            if (newToken) {
+                setAuthToken(newToken);
+                if (data.refreshToken) setRefreshToken(data.refreshToken);
+                return newToken;
+            }
+        }
+    } catch (e) {
+        console.warn('Token refresh failed:', e);
+    }
+    return null;
+};
 
 export const getServerHost = () => {
     // Check if we are running strictly in the Cloud Run/AI Studio preview environment in the browser
@@ -166,13 +254,73 @@ export const apiCall = async <T>(
                     ? requestBody
                     : JSON.stringify(requestBody);
 
+            const token = getAuthToken();
+            const requestHeaders: Record<string, string> = {
+                'Content-Type': 'application/json',
+                ...(typeof methodOrOptions === 'object' && methodOrOptions.headers ? methodOrOptions.headers : {})
+            };
+            if (token) {
+                requestHeaders['Authorization'] = `Bearer ${token}`;
+            }
+
             const response = await fetch(finalUrl, {
                 method,
-                headers: { 'Content-Type': 'application/json' },
+                headers: requestHeaders,
                 body: serializedBody,
                 signal: controller.signal
             });
             clearTimeout(timeoutId);
+
+            // Handle 401 Unauthorized with Token Refresh
+            if (response.status === 401 && !endpoint.includes('/login') && !endpoint.includes('/auth/refresh')) {
+                const refreshToken = getRefreshToken();
+                if (refreshToken) {
+                    if (!isRefreshingToken) {
+                        isRefreshingToken = true;
+                        try {
+                            const newToken = await refreshAccessToken();
+                            isRefreshingToken = false;
+                            onTokenRefreshed(newToken);
+                            if (newToken) {
+                                // Retry request with new token
+                                requestHeaders['Authorization'] = `Bearer ${newToken}`;
+                                const retryResponse = await fetch(finalUrl, {
+                                    method,
+                                    headers: requestHeaders,
+                                    body: serializedBody
+                                });
+                                if (retryResponse.ok) {
+                                    return await (isJson ? retryResponse.json() : ({ success: true } as unknown as T));
+                                }
+                            }
+                        } catch (refreshErr) {
+                            isRefreshingToken = false;
+                            onTokenRefreshed(null);
+                        }
+                    } else {
+                        // Queue request until active refresh completes
+                        const retryWithNewToken = await new Promise<boolean>((resolve) => {
+                            subscribeTokenRefresh((newToken) => {
+                                resolve(!!newToken);
+                            });
+                        });
+                        if (retryWithNewToken) {
+                            const currentToken = getAuthToken();
+                            if (currentToken) {
+                                requestHeaders['Authorization'] = `Bearer ${currentToken}`;
+                                const retryResponse = await fetch(finalUrl, {
+                                    method,
+                                    headers: requestHeaders,
+                                    body: serializedBody
+                                });
+                                if (retryResponse.ok) {
+                                    return await (isJson ? retryResponse.json() : ({ success: true } as unknown as T));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // Sync server and client clocks using standard response 'date' header
             const serverDateStr = response.headers.get('date');

@@ -170,10 +170,10 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
         }
     });
     const [isExcludeManagerOpen, setIsExcludeManagerOpen] = useState(false);
-    const [excludePersonSearch, setExcludePersonSearch] = useState('');
-    const [excludePersonScope, setExcludePersonScope] = useState<'debtors' | 'creditors' | 'all'>('debtors');
-    const [excludePersonReason, setExcludePersonReason] = useState('');
-    const [excludePersonSelectedCode, setExcludePersonSelectedCode] = useState('');
+    const [newExcludeCode, setNewExcludeCode] = useState('');
+    const [newExcludeName, setNewExcludeName] = useState('');
+    const [newExcludeScope, setNewExcludeScope] = useState<'debtors' | 'creditors' | 'all'>('debtors');
+    const [newExcludeReason, setNewExcludeReason] = useState('');
 
     // Save permanent exclusion whenever it changes
     useEffect(() => {
@@ -8912,7 +8912,7 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                             onClick={() => {
                                                 if (window.confirm('آیا از پاکسازی تمام اشخاص مستثنی اطمینان دارید؟')) {
                                                     setPermanentExcluded([]);
-                                                    localStorage.removeItem('sayan_permanent_excluded_persons');
+                                                    localStorage.removeItem('SAYAN_PERMANENT_EXCLUDED_PERSONS');
                                                     toast.success('لیست اشخاص مستثنی پاکسازی شد');
                                                 }
                                             }}

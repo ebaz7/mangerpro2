@@ -2,6 +2,7 @@ import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { resolveImageUrl } from './apiService';
 import { FileOpener } from '@capacitor-community/file-opener';
+import { Share } from '@capacitor/share';
 
 /**
  * Downloads a file from the URL and saves it to the device, then opens it.
@@ -25,9 +26,6 @@ export const downloadAndOpenFile = async (
 ) => {
     try {
         let fetchUrl = resolveImageUrl(url);
-        
-        // If it's literally a blob: URL (from createObjectURL), just download it directly
-        // But normally blob URLs aren't passed to this function.
         
         let shouldDownload = true;
         let fileUri = '';
@@ -81,8 +79,17 @@ export const downloadAndOpenFile = async (
             try {
                 await FileOpener.open({ filePath: fileUri });
             } catch (openErr) {
-                console.error("Error opening file:", openErr);
-                alert('فایل با موفقیت ذخیره شد اما امکان باز کردن مستقیم آن وجود ندارد (در پوشه Documents ذخیره شده است).');
+                console.warn("FileOpener direct open failed, falling back to Native Share:", openErr);
+                try {
+                    await Share.share({
+                        title: fileName,
+                        url: fileUri,
+                        dialogTitle: `باز کردن ${fileName}`
+                    });
+                } catch (shareErr) {
+                    console.error("Native share also failed:", shareErr);
+                    alert('فایل با موفقیت در پوشه Documents ذخیره شد.');
+                }
             }
             
         } else {
@@ -111,7 +118,15 @@ export const saveBlobAndOpenFile = async (blob: Blob, fileName: string) => {
                 data: base64data,
                 directory: Directory.Documents
             });
-            await FileOpener.open({ filePath: result.uri });
+            try {
+                await FileOpener.open({ filePath: result.uri });
+            } catch (openErr) {
+                await Share.share({
+                    title: fileName,
+                    url: result.uri,
+                    dialogTitle: `باز کردن ${fileName}`
+                });
+            }
         } catch (err) {
             console.error('Error saving/opening blob:', err);
             alert('خطا در ذخیره و باز کردن فایل.');

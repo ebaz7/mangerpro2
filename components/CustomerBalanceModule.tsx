@@ -44,7 +44,28 @@ export const CustomerBalanceModule: React.FC<{ currentUser?: any }> = ({ current
   const [pdfLoadingCreditors, setPdfLoadingCreditors] = useState(false);
 
   // Excluded account codes from final report
-  const [excludedCodes, setExcludedCodes] = useState<string[]>([]);
+  const [excludedCodes, setExcludedCodes] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('CUSTOMER_BALANCE_EXCLUDED_CODES');
+      if (saved) return JSON.parse(saved);
+      const permSaved = localStorage.getItem('SAYAN_PERMANENT_EXCLUDED_PERSONS');
+      if (permSaved) {
+        const parsed = JSON.parse(permSaved);
+        if (Array.isArray(parsed)) return parsed.map((p: any) => String(p.code || '').trim()).filter(Boolean);
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('CUSTOMER_BALANCE_EXCLUDED_CODES', JSON.stringify(excludedCodes));
+    } catch (e) {
+      console.error('Failed to save excludedCodes:', e);
+    }
+  }, [excludedCodes]);
   const [selectedForBulk, setSelectedForBulk] = useState<string[]>([]);
   const [hideExcludedLocally, setHideExcludedLocally] = useState<boolean>(false);
 

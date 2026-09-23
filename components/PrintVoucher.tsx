@@ -6,6 +6,7 @@ import { formatCurrency, formatDate, getStatusLabel, numberToPersianWords, forma
 import { X, Printer, FileDown, Loader2, CheckCircle, XCircle, Pencil, Share2, Users, Search, RotateCcw, AlertTriangle, FileText, LayoutTemplate, EyeOff, Eye, Settings2, ChevronLeft, ChevronRight, Calendar, MapPin, Layers, MessageSquare, Paperclip, Upload, Trash2, Image, FileCheck } from 'lucide-react';
 import { apiCall, resolveImageUrl } from '../services/apiService';
 import { generatePdf } from '../utils/pdfGenerator'; 
+import { executeCrossPlatformPrint } from '../utils/mobilePrintService';
 import html2canvas from 'html2canvas';
 import { shareElementToChat } from '../services/chatShareService';
 import { FileViewerModal } from './FileViewerModal';
@@ -263,10 +264,14 @@ const PrintVoucher: React.FC<PrintVoucherProps> = ({ order, onClose, settings, c
           `;
       }
       
-      // We temporary append the element to body for print if it's nested
+      // Execute cross-platform print safely for Mobile & Desktop
       const el = document.getElementById(printAreaId);
       if (el) {
-          window.print();
+          executeCrossPlatformPrint(el, {
+              title: `سند پرداخت ${currentOrder.trackingNumber || ''}`,
+              fileName: `Voucher_${currentOrder.trackingNumber || currentOrder.id}.pdf`,
+              orientation: 'landscape'
+          });
       }
   };
 

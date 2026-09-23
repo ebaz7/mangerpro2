@@ -7,6 +7,7 @@ import { X, Printer, Clock, MapPin, Package, Truck, CheckCircle, XCircle, Share2
 import { apiCall } from '../services/apiService';
 import { getUsers } from '../services/authService';
 import { generatePdf } from '../utils/pdfGenerator'; 
+import { executeCrossPlatformPrint } from '../utils/mobilePrintService';
 import html2canvas from 'html2canvas';
 import SayanSalesRemittanceDoc from './SayanSalesRemittanceDoc';
 import { FileViewerModal } from './FileViewerModal';
@@ -222,7 +223,14 @@ export default function PrintExitPermit({ permit, onClose, onApprove, onReject, 
             }
           `;
       }
-      window.print();
+      const el = document.getElementById(containerId);
+      if (el) {
+          executeCrossPlatformPrint(el, {
+              title: `مجوز خروج کالا ${permit.permitNumber || ''}`,
+              fileName: `Permit_${permit.permitNumber}.pdf`,
+              orientation: 'portrait'
+          });
+      }
   };
 
   const handleDownloadPDF = async () => {

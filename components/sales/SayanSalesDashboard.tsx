@@ -3631,4 +3631,4 @@ export const SayanSalesDashboard: React.FC<SayanSalesDashboardProps> = ({
   );
 };
 
-export default SayanSalesDashboard;
+export default React.memo(SayanSalesDashboard);

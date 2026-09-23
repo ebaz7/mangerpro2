@@ -8474,6 +8474,75 @@ app.get('/api/secretariat/letters/:id/word', (req, res) => {
     res.redirect(307, `/api/secretariat/letters/${req.params.id}/docx${req.url.includes('?') ? '?' + req.url.split('?')[1] : ''}`);
 });
 
+// Quick Microsoft Word (.docx) export on the fly
+app.post('/api/secretariat/quick-docx', async (req, res) => {
+    try {
+        const {
+            subject = 'نامه اداری',
+            content = '',
+            receiver = '',
+            sender = '',
+            date = '',
+            letterNumber = '',
+            signers = [],
+            paperSize = 'A4',
+            orientation = 'portrait',
+            companyId = '',
+            noLetterhead = false,
+            section = 'headquarters',
+            attachments = [],
+            hasAttachment = false,
+            attachmentDescription = '',
+            addCompanyStamp = false,
+            hideSalutationInLetter = false,
+            hideSubjectInLetter = false,
+        } = req.body;
+
+        const db = getDb();
+        const company = (db.companies || []).find(c => c.id === companyId) || (db.settings?.companies || []).find(c => c.id === companyId) || (db.companies || [])[0];
+        const companyName = company ? company.name : '';
+        const companySettings = resolveSecretariatCompanySettings(db, companyId || company?.id);
+
+        const letter = {
+            subject,
+            content,
+            receiver,
+            sender,
+            date,
+            letterNumber,
+            signers,
+            paperSize,
+            orientation,
+            companyId: company?.id || companyId,
+            section,
+            attachments,
+            hasAttachment,
+            attachmentDescription,
+            addCompanyStamp,
+            hideSalutationInLetter,
+            hideSubjectInLetter,
+        };
+
+        const docBuffer = await Renderer.generateSecretariatLetterDoc(
+            letter,
+            companyName,
+            companySettings,
+            company,
+            noLetterhead
+        );
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        const safeNum = String(letterNumber || 'Draft').replace(/[\/\\]/g, '_');
+        const asciiFilename = `Letter_${safeNum}.docx`;
+        const encodedFilename = encodeURIComponent(`Letter_${safeNum}.docx`);
+        res.setHeader('Content-Disposition', `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`);
+        res.send(docBuffer);
+    } catch (e) {
+        console.error("POST /api/secretariat/quick-docx error:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Import Word (.docx) file into HTML for Secretariat Editor
 app.post('/api/secretariat/import-docx', async (req, res) => {
     try {
@@ -8656,10 +8725,15 @@ app.use('/onlyoffice-proxy', (req, res) => {
         return res.status(200).end();
     }
 
-    const targetBase = process.env.ONLYOFFICE_DOC_SERVER_INTERNAL_URL || 'http://127.0.0.1:8088';
+    const customTargetHeader = req.headers['x-onlyoffice-target'];
+    const customTargetQuery = req.query.target ? String(req.query.target).trim() : null;
+    const targetBase = customTargetHeader || customTargetQuery || process.env.ONLYOFFICE_DOC_SERVER_INTERNAL_URL || 'http://127.0.0.1:8088';
+
     try {
         const parsedTarget = new URL(targetBase);
-        const targetPath = req.originalUrl.replace(/^\/onlyoffice-proxy/, '') || '/';
+        const isHttps = parsedTarget.protocol === 'https:';
+        const requestModule = isHttps ? https : http;
+        const targetPath = req.originalUrl.replace(/^\/onlyoffice-proxy/, '').split('?')[0] || '/';
 
         const clientHeaders = { ...req.headers };
         delete clientHeaders.host;
@@ -8667,7 +8741,7 @@ app.use('/onlyoffice-proxy', (req, res) => {
 
         const options = {
             hostname: parsedTarget.hostname,
-            port: parsedTarget.port || 80,
+            port: parsedTarget.port || (isHttps ? 443 : 80),
             path: targetPath,
             method: req.method,
             headers: {
@@ -8678,7 +8752,7 @@ app.use('/onlyoffice-proxy', (req, res) => {
             }
         };
 
-        const proxyReq = http.request(options, (proxyRes) => {
+        const proxyReq = requestModule.request(options, (proxyRes) => {
             const responseHeaders = { ...proxyRes.headers };
 
             // Rewrite location header if redirecting
@@ -8741,7 +8815,10 @@ app.post('/api/secretariat/onlyoffice/prepare', async (req, res) => {
             paperSize = 'A4',
             orientation = 'portrait',
             companyId = '',
-            noLetterhead = false
+            noLetterhead = false,
+            hasAttachment = false,
+            attachmentDescription = '',
+            attachments = []
         } = req.body;
 
         const db = getDb();
@@ -8759,7 +8836,10 @@ app.post('/api/secretariat/onlyoffice/prepare', async (req, res) => {
             signers,
             paperSize,
             orientation,
-            companyId: company?.id || companyId
+            companyId: company?.id || companyId,
+            hasAttachment: hasAttachment ?? ((attachments && attachments.length > 0) || false),
+            attachmentDescription,
+            attachments
         };
 
         const docBuffer = await Renderer.generateSecretariatLetterDoc(

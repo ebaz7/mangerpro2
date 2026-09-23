@@ -213,18 +213,10 @@ import {
   FileUp,
   Split,
   Globe,
+  Layout,
 } from "lucide-react";
 
 import { DocumentEditor } from "@onlyoffice/document-editor-react";
-
-import {
-  auth,
-  signInWithGoogleWorkspace,
-  logoutGoogleWorkspace,
-  getGoogleAccessToken,
-  openInStandaloneTab,
-  translateGoogleAuthError,
-} from "../services/googleWorkspaceService";
 
 import {
   User,
@@ -389,24 +381,42 @@ const SafeOnlyOfficeEditor: React.FC<SafeOnlyOfficeEditorProps> = ({
       }
     };
 
+    let timeoutTimer: any = null;
+
     const existingScript = document.querySelector('script[src="' + scriptUrl + '"]');
     if (existingScript && (window as any).DocsAPI) {
       initEditor();
     } else {
+      if (existingScript && existingScript.parentNode) {
+        existingScript.parentNode.removeChild(existingScript);
+      }
       const script = document.createElement('script');
       script.src = scriptUrl;
       script.async = true;
       script.onload = () => {
-        if (isMounted) initEditor();
+        if (!isMounted) return;
+        if ((window as any).__ONLYOFFICE_PROXY_OFFLINE__) {
+          onLoadComponentError?.(-5, 'سرور محلی ONLYOFFICE روی پورت 8088 در دسترس نیست.');
+          return;
+        }
+        initEditor();
       };
       script.onerror = () => {
-        if (isMounted) onLoadComponentError?.(-3, 'خطا در بارگذاری اسکریپت ONLYOFFICE');
+        if (isMounted) onLoadComponentError?.(-3, 'خطا در برقراری ارتباط با سرور ONLYOFFICE');
       };
       document.body.appendChild(script);
+
+      // 7-second safeguard timeout to prevent infinite spinner
+      timeoutTimer = setTimeout(() => {
+        if (isMounted && !editorInstanceRef.current && !(window as any).DocsAPI) {
+          onLoadComponentError?.(-4, 'پاسخی از سرور ONLYOFFICE دریافت نشد. لطفاً از ویرایشگر آفلاین استفاده کنید یا وضعیت سرور را بررسی نمایید.');
+        }
+      }, 7000);
     }
 
     return () => {
       isMounted = false;
+      if (timeoutTimer) clearTimeout(timeoutTimer);
       cleanupEditor();
       if (containerRef.current) {
         try {
@@ -431,6 +441,23 @@ const toPersianDigits = (str: string | number | undefined | null): string => {
     );
   }
   return result;
+};
+
+const getAttachmentDisplay = (letter?: { hasAttachment?: boolean; attachmentDescription?: string; attachments?: any[] } | null): string => {
+  if (!letter) return "ندارد";
+  if (letter.hasAttachment) {
+    if (letter.attachmentDescription && letter.attachmentDescription.trim()) {
+      return `دارد (${letter.attachmentDescription.trim()})`;
+    }
+    if (letter.attachments && letter.attachments.length > 0) {
+      return `دارد (${toPersianDigits(letter.attachments.length)} برگ)`;
+    }
+    return "دارد";
+  }
+  if (letter.attachments && letter.attachments.length > 0) {
+    return `دارد (${toPersianDigits(letter.attachments.length)} برگ)`;
+  }
+  return "ندارد";
 };
 
 const getEffectiveLetterheadDisplayUrl = (settings?: SecretariatCompanySettings | null) => {
@@ -539,6 +566,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     receiver: "",
     type: "internal" as "internal" | "incoming" | "outgoing",
     attachments: [] as SecretariatLetterAttachment[],
+    hasAttachment: false,
+    attachmentDescription: "",
     addCompanyStamp: false,
     selectedStampIds: [] as string[],
     selectedStampId: "" as string,
@@ -584,16 +613,16 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
   // --- Image Upload in Editor Ref ---
   const editorImageInputRef = useRef<HTMLInputElement>(null);
 
-  // --- Workspace View Mode: Office Editor (Primary/Default - Zero Config & Offline), ONLYOFFICE, Live Google Docs, or Split View ---
-  const [editorViewMode, setEditorViewMode] = useState<"office" | "onlyoffice" | "google-docs" | "split">(() => {
+  // --- Workspace View Mode: Office Virtual Paper (Primary/Default - Zero Config & Offline), ONLYOFFICE Docs, or Split View ---
+  const [editorViewMode, setEditorViewMode] = useState<"office" | "onlyoffice" | "split">(() => {
     const saved = typeof window !== "undefined" ? localStorage.getItem("SECRETARIAT_PREFERRED_EDITOR_MODE") : null;
-    if (saved === "office" || saved === "onlyoffice" || saved === "google-docs" || saved === "split") {
+    if (saved === "office" || saved === "onlyoffice" || saved === "split") {
       return saved;
     }
     return "office";
   });
 
-  const changeEditorViewMode = (mode: "office" | "onlyoffice" | "google-docs" | "split") => {
+  const changeEditorViewMode = (mode: "office" | "onlyoffice" | "split") => {
     setEditorViewMode(mode);
     if (typeof window !== "undefined") {
       localStorage.setItem("SECRETARIAT_PREFERRED_EDITOR_MODE", mode);
@@ -603,7 +632,6 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     const saved = typeof window !== "undefined" ? localStorage.getItem("ONLYOFFICE_DOC_SERVER_URL") : null;
     if (saved && saved.trim()) {
       const clean = saved.trim();
-      // If site is loaded over HTTPS, auto-migrate insecure HTTP direct URLs to safe local proxy to prevent Mixed Content blocking
       if (typeof window !== "undefined" && window.location.protocol === "https:" && clean.startsWith("http://") && !clean.includes("localhost") && !clean.includes("127.0.0.1")) {
         return `${window.location.origin}/onlyoffice-proxy`;
       }
@@ -627,30 +655,34 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
   const [onlyOfficeHealthStatus, setOnlyOfficeHealthStatus] = useState<any>(null);
   const [checkingOnlyOfficeHealth, setCheckingOnlyOfficeHealth] = useState<boolean>(false);
 
-  const [activeGoogleDocUrl, setActiveGoogleDocUrl] = useState<string>("https://docs.google.com/document/u/0/");
-  const [googleDocInputUrl, setGoogleDocInputUrl] = useState<string>("");
-  const [isImportingGoogleDoc, setIsImportingGoogleDoc] = useState(false);
-  const [googleDocStatusText, setGoogleDocStatusText] = useState<string | null>(null);
-  const [googleWorkspaceUser, setGoogleWorkspaceUser] = useState<any>(null);
-  const [isSigningInGoogle, setIsSigningInGoogle] = useState(false);
+  const [syncNotificationText, setSyncNotificationText] = useState<string | null>(null);
 
-  // --- Image Selection & Word-Style Resizing in Editor ---
+  // --- Word-Style Picture Formatting & 8-Handle Interactive Overlay ---
+  const paperRef = useRef<HTMLDivElement>(null);
   const [selectedImgEl, setSelectedImgEl] = useState<HTMLImageElement | null>(null);
   const [selectedImgWidth, setSelectedImgWidth] = useState<string>("100%");
   const [selectedImgAlign, setSelectedImgAlign] = useState<"right" | "center" | "left" | "float-right" | "float-left">("center");
-  const [selectedImgBorder, setSelectedImgBorder] = useState<"none" | "rounded" | "bordered" | "shadow">("rounded");
+  const [selectedImgBorder, setSelectedImgBorder] = useState<"none" | "bordered" | "rounded" | "oval" | "shadow" | "double">("rounded");
+  const [selectedImgBorderColor, setSelectedImgBorderColor] = useState<string>("#334155");
+  const [selectedImgBorderWidth, setSelectedImgBorderWidth] = useState<number>(1);
+  const [selectedImgWrap, setSelectedImgWrap] = useState<"inline" | "float-right" | "float-left" | "behind" | "in-front">("inline");
   const [selectedImgOpacity, setSelectedImgOpacity] = useState<number>(100);
   const [selectedImgIsWatermark, setSelectedImgIsWatermark] = useState<boolean>(false);
   const [selectedImgMultiply, setSelectedImgMultiply] = useState<boolean>(false);
   const [selectedImgPixelWidth, setSelectedImgPixelWidth] = useState<number>(350);
-  const [isDraggingImgResize, setIsDraggingImgResize] = useState(false);
-  const resizeDragStateRef = useRef<{
-    startX: number;
-    startY: number;
-    startWidth: number;
-    startHeight: number;
-    handle: string;
-  } | null>(null);
+  const [showImageLayoutPopover, setShowImageLayoutPopover] = useState<boolean>(false);
+  const [imgOverlayBox, setImgOverlayBox] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+
+  // --- Word-Style Table Management & Designer ---
+  const [selectedTableEl, setSelectedTableEl] = useState<HTMLTableElement | null>(null);
+  const [selectedCellEl, setSelectedCellEl] = useState<HTMLTableCellElement | null>(null);
+  const [showTableModal, setShowTableModal] = useState(false);
+  const [tableModalTab, setTableModalTab] = useState<"grid" | "custom" | "templates" | "paste">("grid");
+  const [tableHoverGrid, setTableHoverGrid] = useState<{ r: number; c: number }>({ r: 3, c: 3 });
+  const [customTableRows, setCustomTableRows] = useState(3);
+  const [customTableCols, setCustomTableCols] = useState(3);
+  const [sheetDataText, setSheetDataText] = useState("");
+  const [quickWordDownloading, setQuickWordDownloading] = useState(false);
 
   // --- Color & Highlight Pickers ---
   const [showTextColorPicker, setShowTextColorPicker] = useState(false);
@@ -658,7 +690,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
   const [activeTextColor, setActiveTextColor] = useState("#000000");
   const [activeBgColor, setActiveBgColor] = useState("#fef08a");
 
-  // --- Google Docs & Word Style States & Handlers ---
+  // --- Editor References & Toolbar States ---
   const quillRef = useRef<any>(null);
   const [showFindReplace, setShowFindReplace] = useState(false);
   const [findText, setFindText] = useState("");
@@ -676,16 +708,6 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
   >(null);
   const [isReadingAloud, setIsReadingAloud] = useState(false);
   const [showAdvancedOptionsModal, setShowAdvancedOptionsModal] = useState(false);
-
-  // --- Google Docs, Google Sheets & Word Suite States ---
-  const [showGoogleModal, setShowGoogleModal] = useState(false);
-  const [googleTab, setGoogleTab] = useState<"docs" | "sheets" | "table-importer" | "embed">("docs");
-  const [googleEmbedUrl, setGoogleEmbedUrl] = useState("");
-  const [sheetDataText, setSheetDataText] = useState("");
-  const [showTableModal, setShowTableModal] = useState(false);
-  const [customTableRows, setCustomTableRows] = useState(3);
-  const [customTableCols, setCustomTableCols] = useState(3);
-  const [quickWordDownloading, setQuickWordDownloading] = useState(false);
 
   const handleFindReplace = () => {
     if (!findText) return;
@@ -788,15 +810,27 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     }
   };
 
-  // Listen to Google Auth
-  useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      setGoogleWorkspaceUser(user);
-    });
-    return () => unsubscribe();
-  }, []);
+  // Update bounding rect for image overlay handles
+  const updateImgOverlayRect = () => {
+    if (!selectedImgEl || !paperRef.current) {
+      setImgOverlayBox(null);
+      return;
+    }
+    try {
+      const paperRect = paperRef.current.getBoundingClientRect();
+      const imgRect = selectedImgEl.getBoundingClientRect();
+      setImgOverlayBox({
+        top: imgRect.top - paperRect.top,
+        left: imgRect.left - paperRect.left,
+        width: imgRect.width,
+        height: imgRect.height,
+      });
+    } catch (e) {
+      setImgOverlayBox(null);
+    }
+  };
 
-  // Listen to Quill Editor image click to select image & open toolbar
+  // Listen to Quill Editor clicks: detect Image or Table selection
   useEffect(() => {
     try {
       const quill = quillRef.current?.getEditor();
@@ -807,14 +841,52 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
         if (target && target.tagName === "IMG") {
           const img = target as HTMLImageElement;
           setSelectedImgEl(img);
+          setSelectedTableEl(null);
+          setSelectedCellEl(null);
 
           const opVal = img.style.opacity ? Math.round(parseFloat(img.style.opacity) * 100) : 100;
           setSelectedImgOpacity(opVal);
           setSelectedImgIsWatermark(img.style.position === "absolute");
           setSelectedImgMultiply(img.style.mixBlendMode === "multiply");
           setSelectedImgPixelWidth(img.offsetWidth || 350);
-        } else if (!target.closest("#image-floating-toolbar") && !target.closest(".img-resize-handle")) {
+
+          if (img.style.borderRadius === "50%" || img.style.borderRadius === "9999px") {
+            setSelectedImgBorder("oval");
+          } else if (img.style.borderRadius === "14px" || img.style.borderRadius === "12px") {
+            setSelectedImgBorder("rounded");
+          } else if (img.style.boxShadow && img.style.boxShadow !== "none") {
+            setSelectedImgBorder("shadow");
+          } else if (img.style.border && img.style.border.includes("double")) {
+            setSelectedImgBorder("double");
+          } else if (img.style.border && img.style.border !== "none") {
+            setSelectedImgBorder("bordered");
+          } else {
+            setSelectedImgBorder("none");
+          }
+
+          if (img.style.float === "right") setSelectedImgWrap("float-right");
+          else if (img.style.float === "left") setSelectedImgWrap("float-left");
+          else if (img.style.position === "absolute") setSelectedImgWrap("behind");
+          else setSelectedImgWrap("inline");
+
+          setTimeout(updateImgOverlayRect, 30);
+        } else if (target && (target.tagName === "TD" || target.tagName === "TH" || target.closest("table"))) {
+          const table = target.closest("table") as HTMLTableElement;
+          const cell = (target.tagName === "TD" || target.tagName === "TH") ? (target as HTMLTableCellElement) : (target.closest("td, th") as HTMLTableCellElement);
+          setSelectedTableEl(table);
+          setSelectedCellEl(cell);
           setSelectedImgEl(null);
+          setImgOverlayBox(null);
+        } else if (
+          !target.closest("#picture-format-ribbon") &&
+          !target.closest("#table-management-ribbon") &&
+          !target.closest(".img-interactive-overlay") &&
+          !target.closest("#image-layout-popover")
+        ) {
+          setSelectedImgEl(null);
+          setImgOverlayBox(null);
+          setSelectedTableEl(null);
+          setSelectedCellEl(null);
         }
       };
 
@@ -830,6 +902,87 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     }
   }, [quillRef.current, newLetterForm.content, editorViewMode]);
 
+  // Synchronize overlay box on scroll or resize
+  useEffect(() => {
+    if (!selectedImgEl) {
+      setImgOverlayBox(null);
+      return;
+    }
+    updateImgOverlayRect();
+    const handleScrollOrResize = () => updateImgOverlayRect();
+    window.addEventListener("scroll", handleScrollOrResize, true);
+    window.addEventListener("resize", handleScrollOrResize);
+    return () => {
+      window.removeEventListener("scroll", handleScrollOrResize, true);
+      window.removeEventListener("resize", handleScrollOrResize);
+    };
+  }, [selectedImgEl, newLetterForm.content]);
+
+  // Interactive 8-Handle Drag Resizing (Word Style)
+  const startImageInteractiveResize = (e: React.MouseEvent, handle: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!selectedImgEl) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const rect = selectedImgEl.getBoundingClientRect();
+    const startWidth = rect.width;
+    const startHeight = rect.height;
+    const aspectRatio = startHeight / (startWidth || 1);
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+
+      let newWidth = startWidth;
+      let newHeight = startHeight;
+
+      if (handle === "se") {
+        newWidth = Math.max(50, startWidth + deltaX);
+        newHeight = Math.round(newWidth * aspectRatio);
+      } else if (handle === "sw") {
+        newWidth = Math.max(50, startWidth - deltaX);
+        newHeight = Math.round(newWidth * aspectRatio);
+      } else if (handle === "ne") {
+        newWidth = Math.max(50, startWidth + deltaX);
+        newHeight = Math.round(newWidth * aspectRatio);
+      } else if (handle === "nw") {
+        newWidth = Math.max(50, startWidth - deltaX);
+        newHeight = Math.round(newWidth * aspectRatio);
+      } else if (handle === "e") {
+        newWidth = Math.max(50, startWidth + deltaX);
+      } else if (handle === "w") {
+        newWidth = Math.max(50, startWidth - deltaX);
+      } else if (handle === "s") {
+        newHeight = Math.max(30, startHeight + deltaY);
+        selectedImgEl.style.height = `${newHeight}px`;
+      } else if (handle === "n") {
+        newHeight = Math.max(30, startHeight - deltaY);
+        selectedImgEl.style.height = `${newHeight}px`;
+      }
+
+      newWidth = Math.min(850, Math.round(newWidth));
+      selectedImgEl.style.width = `${newWidth}px`;
+      if (handle !== "s" && handle !== "n") {
+        selectedImgEl.style.height = "auto";
+      }
+      selectedImgEl.style.maxWidth = "100%";
+      setSelectedImgPixelWidth(newWidth);
+      updateImgOverlayRect();
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      updateImgOverlayRect();
+      syncEditorContent();
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  };
+
   // Image manipulation in editor
   const updateSelectedImageWidth = (widthPercent: string) => {
     if (!selectedImgEl) return;
@@ -840,6 +993,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     if (selectedImgEl.offsetWidth) {
       setSelectedImgPixelWidth(selectedImgEl.offsetWidth);
     }
+    updateImgOverlayRect();
     syncEditorContent();
   };
 
@@ -849,6 +1003,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     selectedImgEl.style.maxWidth = "100%";
     selectedImgEl.style.height = "auto";
     setSelectedImgPixelWidth(px);
+    updateImgOverlayRect();
     syncEditorContent();
   };
 
@@ -884,6 +1039,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
       setSelectedImgOpacity(100);
     }
     setSelectedImgIsWatermark(nextVal);
+    updateImgOverlayRect();
     syncEditorContent();
   };
 
@@ -920,133 +1076,425 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
       }
     }
     setSelectedImgAlign(align);
+    updateImgOverlayRect();
     syncEditorContent();
   };
 
-  const updateSelectedImageBorder = (borderStyle: "none" | "rounded" | "bordered" | "shadow") => {
+  const updateSelectedImageWrap = (wrap: "inline" | "float-right" | "float-left" | "behind" | "in-front") => {
+    if (!selectedImgEl) return;
+    if (wrap === "inline") {
+      selectedImgEl.style.position = "relative";
+      selectedImgEl.style.float = "none";
+      selectedImgEl.style.display = "block";
+      selectedImgEl.style.margin = "12px auto";
+      selectedImgEl.style.zIndex = "auto";
+      setSelectedImgIsWatermark(false);
+    } else if (wrap === "float-right") {
+      selectedImgEl.style.position = "relative";
+      selectedImgEl.style.float = "right";
+      selectedImgEl.style.display = "inline-block";
+      selectedImgEl.style.margin = "8px 0 8px 16px";
+      selectedImgEl.style.zIndex = "auto";
+      setSelectedImgIsWatermark(false);
+    } else if (wrap === "float-left") {
+      selectedImgEl.style.position = "relative";
+      selectedImgEl.style.float = "left";
+      selectedImgEl.style.display = "inline-block";
+      selectedImgEl.style.margin = "8px 16px 8px 0";
+      selectedImgEl.style.zIndex = "auto";
+      setSelectedImgIsWatermark(false);
+    } else if (wrap === "behind") {
+      selectedImgEl.style.position = "absolute";
+      selectedImgEl.style.top = "50%";
+      selectedImgEl.style.left = "50%";
+      selectedImgEl.style.transform = "translate(-50%, -50%)";
+      selectedImgEl.style.zIndex = "0";
+      selectedImgEl.style.opacity = selectedImgEl.style.opacity || "0.15";
+      setSelectedImgIsWatermark(true);
+      setSelectedImgOpacity(Math.round(parseFloat(selectedImgEl.style.opacity || "0.15") * 100));
+    } else if (wrap === "in-front") {
+      selectedImgEl.style.position = "relative";
+      selectedImgEl.style.float = "none";
+      selectedImgEl.style.display = "block";
+      selectedImgEl.style.margin = "12px auto";
+      selectedImgEl.style.zIndex = "10";
+      setSelectedImgIsWatermark(false);
+    }
+    setSelectedImgWrap(wrap);
+    setShowImageLayoutPopover(false);
+    updateImgOverlayRect();
+    syncEditorContent();
+  };
+
+  const updateSelectedImageBorder = (borderStyle: "none" | "bordered" | "rounded" | "oval" | "shadow" | "double") => {
     if (!selectedImgEl) return;
     if (borderStyle === "none") {
       selectedImgEl.style.borderRadius = "0px";
       selectedImgEl.style.border = "none";
       selectedImgEl.style.boxShadow = "none";
     } else if (borderStyle === "rounded") {
-      selectedImgEl.style.borderRadius = "12px";
+      selectedImgEl.style.borderRadius = "14px";
       selectedImgEl.style.border = "none";
+      selectedImgEl.style.boxShadow = "none";
+    } else if (borderStyle === "oval") {
+      selectedImgEl.style.borderRadius = "50%";
+      selectedImgEl.style.border = `${selectedImgBorderWidth}px solid ${selectedImgBorderColor}`;
       selectedImgEl.style.boxShadow = "none";
     } else if (borderStyle === "bordered") {
-      selectedImgEl.style.borderRadius = "6px";
-      selectedImgEl.style.border = "2px solid #cbd5e1";
-      selectedImgEl.style.padding = "4px";
+      selectedImgEl.style.borderRadius = "4px";
+      selectedImgEl.style.border = `${selectedImgBorderWidth}px solid ${selectedImgBorderColor}`;
+      selectedImgEl.style.boxShadow = "none";
+    } else if (borderStyle === "double") {
+      selectedImgEl.style.borderRadius = "4px";
+      selectedImgEl.style.border = `4px double ${selectedImgBorderColor}`;
       selectedImgEl.style.boxShadow = "none";
     } else if (borderStyle === "shadow") {
-      selectedImgEl.style.borderRadius = "10px";
-      selectedImgEl.style.border = "none";
-      selectedImgEl.style.boxShadow = "0 12px 24px -4px rgba(0, 0, 0, 0.18)";
+      selectedImgEl.style.borderRadius = "8px";
+      selectedImgEl.style.border = "1px solid #e2e8f0";
+      selectedImgEl.style.boxShadow = "0 14px 28px -4px rgba(0, 0, 0, 0.22), 0 8px 10px -6px rgba(0, 0, 0, 0.1)";
     }
     setSelectedImgBorder(borderStyle);
+    updateImgOverlayRect();
     syncEditorContent();
   };
 
-  const startImageResize = (e: React.MouseEvent, handle: string) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const updateSelectedImageBorderColor = (color: string) => {
     if (!selectedImgEl) return;
-
-    const rect = selectedImgEl.getBoundingClientRect();
-    resizeDragStateRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      startWidth: rect.width,
-      startHeight: rect.height,
-      handle,
-    };
-    setIsDraggingImgResize(true);
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      if (!resizeDragStateRef.current || !selectedImgEl) return;
-      const { startX, startWidth, handle: activeHandle } = resizeDragStateRef.current;
-      const deltaX = moveEvent.clientX - startX;
-
-      let newWidth = startWidth;
-      if (activeHandle.includes("e")) {
-        newWidth = Math.max(60, startWidth + deltaX);
-      } else if (activeHandle.includes("w")) {
-        newWidth = Math.max(60, startWidth - deltaX);
-      }
-
-      newWidth = Math.min(850, Math.round(newWidth));
-      selectedImgEl.style.width = `${newWidth}px`;
-      selectedImgEl.style.height = "auto";
-      selectedImgEl.style.maxWidth = "100%";
-      setSelectedImgPixelWidth(newWidth);
-    };
-
-    const onMouseUp = () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-      setIsDraggingImgResize(false);
-      resizeDragStateRef.current = null;
+    setSelectedImgBorderColor(color);
+    if (selectedImgBorder === "bordered" || selectedImgBorder === "oval" || selectedImgBorder === "double") {
+      selectedImgEl.style.borderColor = color;
       syncEditorContent();
-    };
+    }
+  };
 
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
+  const updateSelectedImageBorderWidth = (width: number) => {
+    if (!selectedImgEl) return;
+    setSelectedImgBorderWidth(width);
+    if (selectedImgBorder === "bordered" || selectedImgBorder === "oval") {
+      selectedImgEl.style.borderWidth = `${width}px`;
+      syncEditorContent();
+    }
+  };
+
+  const rotateSelectedImage = (degreesToAdd: number) => {
+    if (!selectedImgEl) return;
+    const currentTransform = selectedImgEl.style.transform || "";
+    const match = currentTransform.match(/rotate\((-?\d+)deg\)/);
+    const currentDeg = match ? parseInt(match[1], 10) : 0;
+    const nextDeg = (currentDeg + degreesToAdd) % 360;
+    if (nextDeg === 0) {
+      selectedImgEl.style.transform = selectedImgIsWatermark ? "translate(-50%, -50%)" : "none";
+    } else {
+      selectedImgEl.style.transform = selectedImgIsWatermark
+        ? `translate(-50%, -50%) rotate(${nextDeg}deg)`
+        : `rotate(${nextDeg}deg)`;
+    }
+    updateImgOverlayRect();
+    syncEditorContent();
   };
 
   const deleteSelectedImage = () => {
     if (!selectedImgEl) return;
     selectedImgEl.remove();
     setSelectedImgEl(null);
+    setImgOverlayBox(null);
     syncEditorContent();
   };
 
-  // --- Google Docs Workspace In-App Handlers ---
-  const handleImportGoogleDoc = async (urlOrIdToImport?: string) => {
-    const targetUrl = urlOrIdToImport || googleDocInputUrl || activeGoogleDocUrl;
-    if (!targetUrl || targetUrl === "https://docs.google.com/document/u/0/") {
-      alert("لطفاً ابتدا لینک یا شناسه سند Google Docs را در کادر وارد نمایید.");
-      return;
+  // --- Table Operations ---
+  const insertTableRowAbove = () => {
+    if (!selectedCellEl || !selectedTableEl) return;
+    const row = selectedCellEl.closest("tr");
+    if (!row) return;
+    const numCells = row.children.length;
+    const newRow = document.createElement("tr");
+    for (let i = 0; i < numCells; i++) {
+      const td = document.createElement("td");
+      td.style.border = "1px solid #cbd5e1";
+      td.style.padding = "8px 12px";
+      td.style.textAlign = "right";
+      td.innerHTML = "&nbsp;";
+      newRow.appendChild(td);
     }
-    try {
-      setIsImportingGoogleDoc(true);
-      setGoogleDocStatusText("در حال برقراری ارتباط با Google Docs و استخراج محتوا...");
-
-      const token = await getGoogleAccessToken(currentUser?.id);
-      const res = await fetch("/api/secretariat/import-google-doc", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          urlOrId: targetUrl,
-          token: token || undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "خطا در دریافت سند از Google Docs");
-
-      if (data.html) {
-        insertHTML(data.html);
-        setGoogleDocStatusText("محتوای سند گوگل داکس با موفقیت در نامه اداری وارد شد.");
-        setTimeout(() => setGoogleDocStatusText(null), 5000);
-      }
-    } catch (e: any) {
-      alert("خطا در بارگذاری محتوا از Google Docs: " + e.message);
-      setGoogleDocStatusText(null);
-    } finally {
-      setIsImportingGoogleDoc(false);
-    }
+    row.parentNode?.insertBefore(newRow, row);
+    syncEditorContent();
   };
 
-  const handleExportToGoogleDocs = () => {
-    const content = newLetterForm.content || "";
-    if (!content) {
-      alert("متنی برای ارسال به Google Docs وجود ندارد.");
-      return;
+  const insertTableRowBelow = () => {
+    if (!selectedCellEl || !selectedTableEl) return;
+    const row = selectedCellEl.closest("tr");
+    if (!row) return;
+    const numCells = row.children.length;
+    const newRow = document.createElement("tr");
+    for (let i = 0; i < numCells; i++) {
+      const td = document.createElement("td");
+      td.style.border = "1px solid #cbd5e1";
+      td.style.padding = "8px 12px";
+      td.style.textAlign = "right";
+      td.innerHTML = "&nbsp;";
+      newRow.appendChild(td);
     }
-    const plainText = content.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-    navigator.clipboard.writeText(plainText).then(() => {
-      setGoogleDocStatusText("متن نامه با موفقیت کپی شد! در سند Google Docs با زدن Ctrl+V آن را الصاق کنید.");
-      setTimeout(() => setGoogleDocStatusText(null), 6000);
+    row.parentNode?.insertBefore(newRow, row.nextSibling);
+    syncEditorContent();
+  };
+
+  const insertTableColRight = () => {
+    if (!selectedCellEl || !selectedTableEl) return;
+    const cellIdx = selectedCellEl.cellIndex;
+    const rows = Array.from(selectedTableEl.querySelectorAll("tr"));
+    rows.forEach((r) => {
+      const isHeaderRow = r.querySelector("th") !== null;
+      const newCell = document.createElement(isHeaderRow ? "th" : "td");
+      newCell.style.border = "1px solid #cbd5e1";
+      newCell.style.padding = "8px 12px";
+      newCell.style.textAlign = "right";
+      newCell.innerHTML = isHeaderRow ? "عنوان جدید" : "&nbsp;";
+      const targetCell = r.children[cellIdx];
+      if (targetCell) {
+        r.insertBefore(newCell, targetCell);
+      } else {
+        r.appendChild(newCell);
+      }
     });
+    syncEditorContent();
+  };
+
+  const insertTableColLeft = () => {
+    if (!selectedCellEl || !selectedTableEl) return;
+    const cellIdx = selectedCellEl.cellIndex;
+    const rows = Array.from(selectedTableEl.querySelectorAll("tr"));
+    rows.forEach((r) => {
+      const isHeaderRow = r.querySelector("th") !== null;
+      const newCell = document.createElement(isHeaderRow ? "th" : "td");
+      newCell.style.border = "1px solid #cbd5e1";
+      newCell.style.padding = "8px 12px";
+      newCell.style.textAlign = "right";
+      newCell.innerHTML = isHeaderRow ? "عنوان جدید" : "&nbsp;";
+      const targetCell = r.children[cellIdx];
+      if (targetCell && targetCell.nextSibling) {
+        r.insertBefore(newCell, targetCell.nextSibling);
+      } else {
+        r.appendChild(newCell);
+      }
+    });
+    syncEditorContent();
+  };
+
+  const deleteCurrentTableRow = () => {
+    if (!selectedCellEl || !selectedTableEl) return;
+    const row = selectedCellEl.closest("tr");
+    if (!row) return;
+    row.remove();
+    setSelectedCellEl(null);
+    syncEditorContent();
+  };
+
+  const deleteCurrentTableCol = () => {
+    if (!selectedCellEl || !selectedTableEl) return;
+    const cellIdx = selectedCellEl.cellIndex;
+    const rows = Array.from(selectedTableEl.querySelectorAll("tr"));
+    rows.forEach((r) => {
+      if (r.children[cellIdx]) {
+        r.children[cellIdx].remove();
+      }
+    });
+    setSelectedCellEl(null);
+    syncEditorContent();
+  };
+
+  const deleteEntireTable = () => {
+    if (!selectedTableEl) return;
+    selectedTableEl.remove();
+    setSelectedTableEl(null);
+    setSelectedCellEl(null);
+    syncEditorContent();
+  };
+
+  const setTableCellBg = (color: string) => {
+    if (!selectedCellEl) return;
+    selectedCellEl.style.backgroundColor = color;
+    syncEditorContent();
+  };
+
+  const applyTableTheme = (theme: "formal-navy" | "modern-slate" | "zebra-emerald" | "minimal-border") => {
+    if (!selectedTableEl) return;
+    selectedTableEl.style.width = "100%";
+    selectedTableEl.style.borderCollapse = "collapse";
+    selectedTableEl.style.margin = "16px 0";
+    selectedTableEl.style.direction = "rtl";
+
+    const rows = Array.from(selectedTableEl.querySelectorAll("tr"));
+    rows.forEach((r, idx) => {
+      const isHeader = idx === 0;
+      const cells = Array.from(r.children) as HTMLElement[];
+      cells.forEach((c) => {
+        c.style.padding = "9px 12px";
+        c.style.fontSize = "12px";
+        c.style.textAlign = "right";
+        if (theme === "formal-navy") {
+          c.style.border = "1px solid #94a3b8";
+          if (isHeader) {
+            c.style.backgroundColor = "#1e3a8a";
+            c.style.color = "#ffffff";
+            c.style.fontWeight = "bold";
+          } else {
+            c.style.backgroundColor = idx % 2 === 0 ? "#f8fafc" : "#ffffff";
+            c.style.color = "#0f172a";
+          }
+        } else if (theme === "modern-slate") {
+          c.style.border = "1px solid #cbd5e1";
+          if (isHeader) {
+            c.style.backgroundColor = "#334155";
+            c.style.color = "#ffffff";
+            c.style.fontWeight = "bold";
+          } else {
+            c.style.backgroundColor = idx % 2 === 0 ? "#f1f5f9" : "#ffffff";
+            c.style.color = "#1e293b";
+          }
+        } else if (theme === "zebra-emerald") {
+          c.style.border = "1px solid #a7f3d0";
+          if (isHeader) {
+            c.style.backgroundColor = "#065f46";
+            c.style.color = "#ffffff";
+            c.style.fontWeight = "bold";
+          } else {
+            c.style.backgroundColor = idx % 2 === 0 ? "#ecfdf5" : "#ffffff";
+            c.style.color = "#064e3b";
+          }
+        } else if (theme === "minimal-border") {
+          c.style.border = "none";
+          c.style.borderBottom = "1px solid #e2e8f0";
+          if (isHeader) {
+            c.style.backgroundColor = "transparent";
+            c.style.borderBottom = "2px solid #0f172a";
+            c.style.color = "#0f172a";
+            c.style.fontWeight = "bold";
+          } else {
+            c.style.backgroundColor = "transparent";
+            c.style.color = "#334155";
+          }
+        }
+      });
+    });
+    syncEditorContent();
+  };
+
+  const handleInsertCustomTable = (rows: number, cols: number, theme: "formal-navy" | "modern-slate" | "zebra-emerald" | "minimal-border" = "formal-navy") => {
+    let headerBg = "#1e3a8a";
+    let headerColor = "#ffffff";
+    let borderColor = "#94a3b8";
+
+    if (theme === "modern-slate") {
+      headerBg = "#334155";
+      borderColor = "#cbd5e1";
+    } else if (theme === "zebra-emerald") {
+      headerBg = "#065f46";
+      borderColor = "#a7f3d0";
+    } else if (theme === "minimal-border") {
+      headerBg = "#f8fafc";
+      headerColor = "#0f172a";
+      borderColor = "#cbd5e1";
+    }
+
+    let tableHtml = `<table style="width: 100%; border-collapse: collapse; margin: 16px 0; direction: rtl; font-family: inherit;"><tbody>`;
+    for (let r = 0; r < rows; r++) {
+      const isHeader = r === 0;
+      tableHtml += `<tr style="${isHeader ? `background-color: ${headerBg}; font-weight: bold; color: ${headerColor};` : r % 2 === 1 ? "background-color: #f8fafc;" : ""}">`;
+      for (let c = 0; c < cols; c++) {
+        const title = isHeader ? `ستون ${toPersianDigits(c + 1)}` : "&nbsp;";
+        if (isHeader) {
+          tableHtml += `<th style="border: 1px solid ${borderColor}; padding: 9px 12px; text-align: right; color: ${headerColor}; font-size: 12px;">${title}</th>`;
+        } else {
+          tableHtml += `<td style="border: 1px solid ${borderColor}; padding: 8px 12px; text-align: right; font-size: 12px;">&nbsp;</td>`;
+        }
+      }
+      tableHtml += "</tr>";
+    }
+    tableHtml += "</tbody></table><p><br/></p>";
+    insertHTML(tableHtml);
+    setShowTableModal(false);
+  };
+
+  const handleInsertCorporateTemplate = (templateType: "invoice" | "tech-specs" | "project-wbs" | "meeting-attendance") => {
+    let tableHtml = "";
+    if (templateType === "invoice") {
+      tableHtml = `
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0; direction: rtl; font-family: inherit;">
+          <thead>
+            <tr style="background-color: #1e3a8a; color: white;">
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 8%; text-align: center;">ردیف</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 40%; text-align: right;">شرح کالا / خدمات</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 10%; text-align: center;">تعداد</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 10%; text-align: center;">واحد</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 16%; text-align: center;">بهای واحد (ریال)</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 16%; text-align: center;">بهای کل (ریال)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">۱</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">عدد</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td></tr>
+            <tr style="background-color: #f8fafc;"><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">۲</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">دستگاه</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td></tr>
+            <tr><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">۳</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">متر</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td></tr>
+            <tr style="background-color: #f1f5f9; font-weight: bold;"><td colspan="5" style="border: 1px solid #cbd5e1; padding: 8px; text-align: left;">مجموع کل:</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td></tr>
+          </tbody>
+        </table><p><br/></p>`;
+    } else if (templateType === "tech-specs") {
+      tableHtml = `
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0; direction: rtl; font-family: inherit;">
+          <thead>
+            <tr style="background-color: #334155; color: white;">
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 8%; text-align: center;">ردیف</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 28%; text-align: right;">پارامتر / ویژگی فنی</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 32%; text-align: right;">مشخصات مورد درخواست</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 32%; text-align: right;">پیشنهاد تأمین‌کننده</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">۱</td><td style="border: 1px solid #cbd5e1; padding: 8px; font-weight: bold;">برند و کشور سازنده</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td></tr>
+            <tr style="background-color: #f8fafc;"><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">۲</td><td style="border: 1px solid #cbd5e1; padding: 8px; font-weight: bold;">استاندارد کیفی و گواهینامه‌ها</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td></tr>
+            <tr><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">۳</td><td style="border: 1px solid #cbd5e1; padding: 8px; font-weight: bold;">مدت گارانتی و خدمات پس از فروش</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td></tr>
+          </tbody>
+        </table><p><br/></p>`;
+    } else if (templateType === "project-wbs") {
+      tableHtml = `
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0; direction: rtl; font-family: inherit;">
+          <thead>
+            <tr style="background-color: #065f46; color: white;">
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 8%; text-align: center;">ردیف</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 36%; text-align: right;">شرح اقدام / فاز عملیاتی</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 20%; text-align: center;">مسئول اجرا</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 18%; text-align: center;">مهلت انجام</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 18%; text-align: center;">وضعیت پیشرفت</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">۱</td><td style="border: 1px solid #cbd5e1; padding: 8px;">فاز اول: تحلیل و برنامه‌ریزی اولیه</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; color: #059669; font-weight: bold;">انجام شده</td></tr>
+            <tr style="background-color: #f8fafc;"><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">۲</td><td style="border: 1px solid #cbd5e1; padding: 8px;">فاز دوم: تأمین اقلام و تجهیزات</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; color: #d97706; font-weight: bold;">در حال اجرا</td></tr>
+            <tr><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">۳</td><td style="border: 1px solid #cbd5e1; padding: 8px;">فاز سوم: تحویل نهایی و صورتجلسه</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; color: #64748b;">در انتظار</td></tr>
+          </tbody>
+        </table><p><br/></p>`;
+    } else if (templateType === "meeting-attendance") {
+      tableHtml = `
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0; direction: rtl; font-family: inherit;">
+          <thead>
+            <tr style="background-color: #1e293b; color: white;">
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 8%; text-align: center;">ردیف</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 32%; text-align: right;">نام و نام خانوادگی</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 30%; text-align: right;">سمت سازمانی / واحد</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 15%; text-align: center;">وضعیت حضور</th>
+              <th style="border: 1px solid #cbd5e1; padding: 8px; width: 15%; text-align: center;">امضا</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">۱</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">حاضر</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td></tr>
+            <tr style="background-color: #f8fafc;"><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">۲</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">حاضر</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td></tr>
+            <tr><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">۳</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td><td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">حاضر</td><td style="border: 1px solid #cbd5e1; padding: 8px;">&nbsp;</td></tr>
+          </tbody>
+        </table><p><br/></p>`;
+    }
+    if (tableHtml) {
+      insertHTML(tableHtml);
+      setShowTableModal(false);
+    }
   };
 
   // --- ONLYOFFICE Document Server Handlers ---
@@ -1159,29 +1607,6 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     }
   }, [showNewLetterModal, editorViewMode]);
 
-  const handleConnectGoogleWorkspace = async () => {
-    try {
-      setIsSigningInGoogle(true);
-      await signInWithGoogleWorkspace(currentUser?.id, { forceAccountSelection: true });
-    } catch (e: any) {
-      alert("خطا در ورود با حساب گوگل: " + translateGoogleAuthError(e));
-    } finally {
-      setIsSigningInGoogle(false);
-    }
-  };
-
-  const handleLoadGoogleDocInFrame = (urlOrId: string) => {
-    if (!urlOrId.trim()) return;
-    let url = urlOrId.trim();
-    if (!url.startsWith("http")) {
-      url = `https://docs.google.com/document/d/${url}/edit?embedded=true`;
-    } else if (url.includes("/document/d/") && !url.includes("embedded=true")) {
-      url = url.split("?")[0] + "?embedded=true";
-    }
-    setActiveGoogleDocUrl(url);
-    setGoogleDocInputUrl(url);
-  };
-
   const handleEditorImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1196,10 +1621,16 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     e.target.value = "";
   };
 
-  // Quick Microsoft Word (.docx) export on the fly
+  // Quick Microsoft Word (.docx) export on the fly with comprehensive metadata
   const handleQuickDocxDownload = async () => {
     try {
       setQuickWordDownloading(true);
+      const letterNum = editingLetterId
+        ? (letters.find(l => l.id === editingLetterId)?.letterNumber || getNextLetterNumber(selectedCompany, activeSection))
+        : getNextLetterNumber(selectedCompany, activeSection);
+      const hasAttach = newLetterForm.hasAttachment ?? ((newLetterForm.attachments && newLetterForm.attachments.length > 0) || false);
+      const attachDesc = newLetterForm.attachmentDescription || "";
+
       const res = await fetch("/api/secretariat/quick-docx", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1209,12 +1640,15 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
           receiver: newLetterForm.receiver || "",
           sender: newLetterForm.sender || "",
           date: newLetterForm.date || "",
-          letterNumber: editingLetterId ? (letters.find(l => l.id === editingLetterId)?.letterNumber || "Draft") : "Draft",
+          letterNumber: letterNum,
           signers: newLetterForm.signers || [],
           paperSize: newLetterForm.paperSize || "A4",
           orientation: newLetterForm.orientation || "portrait",
-          companyId: selectedCompany?.id,
-          noLetterhead: false,
+          companyId: (newLetterForm as any).companyId || selectedCompany?.id || "",
+          noLetterhead: (newLetterForm as any).noLetterhead || false,
+          hasAttachment: hasAttach,
+          attachmentDescription: attachDesc,
+          attachments: newLetterForm.attachments || [],
         }),
       });
       if (!res.ok) throw new Error("خطا در ایجاد خروجی فایل Word");
@@ -1222,8 +1656,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const currentDocNum = editingLetterId ? (letters.find(l => l.id === editingLetterId)?.letterNumber || "Draft") : "Draft";
-      const safeNum = String(currentDocNum).replace(/[\/\\]/g, "_");
+      const safeNum = String(letterNum || "Letter").replace(/[\/\\]/g, "_");
       a.download = `Letter_${safeNum}.docx`;
       document.body.appendChild(a);
       a.click();
@@ -1236,26 +1669,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     }
   };
 
-  // Google Docs Open & Export
-  const handleOpenGoogleDocs = () => {
-    try {
-      const cleanText = (newLetterForm.content || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(cleanText).catch(() => {});
-      }
-      window.open("https://docs.google.com/document/create", "_blank");
-      alert("متن نامه در حافظه کپی شد! در صفحه جدید Google Docs می‌توانید با زدن کلید Ctrl+V متن را درج نمایید.");
-    } catch (err) {
-      window.open("https://docs.google.com/document/create", "_blank");
-    }
-  };
-
-  // Google Sheets Open
-  const handleOpenGoogleSheets = () => {
-    window.open("https://sheets.google.com/create", "_blank");
-  };
-
-  // Insert Table Copied from Google Sheets or Excel (TSV / CSV / Text)
+  // Insert Table Copied from Excel or Sheets (TSV / CSV / Text)
   const handleInsertSheetTable = (rawText: string) => {
     if (!rawText.trim()) return;
     const lines = rawText.trim().split(/\r?\n/).filter((line) => line.trim().length > 0);
@@ -1266,11 +1680,11 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     lines.forEach((line, rowIdx) => {
       const cells = line.split("\t");
       const isHeader = rowIdx === 0;
-      tableHtml += `<tr style="${isHeader ? "background-color: #f1f5f9; font-weight: bold;" : rowIdx % 2 === 1 ? "background-color: #f8fafc;" : ""}">`;
+      tableHtml += `<tr style="${isHeader ? "background-color: #1e3a8a; font-weight: bold; color: white;" : rowIdx % 2 === 1 ? "background-color: #f8fafc;" : ""}">`;
       cells.forEach((cell) => {
         const val = cell.trim() || "&nbsp;";
         if (isHeader) {
-          tableHtml += `<th style="border: 1px solid #cbd5e1; padding: 8px 12px; text-align: right; color: #1e293b;">${val}</th>`;
+          tableHtml += `<th style="border: 1px solid #94a3b8; padding: 8px 12px; text-align: right; color: white;">${val}</th>`;
         } else {
           tableHtml += `<td style="border: 1px solid #cbd5e1; padding: 8px 12px; text-align: right;">${val}</td>`;
         }
@@ -1280,29 +1694,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
 
     tableHtml += "</tbody></table><p><br/></p>";
     insertHTML(tableHtml);
-    setShowGoogleModal(false);
-    setSheetDataText("");
-  };
-
-  // Insert Custom Word-Style Table
-  const handleInsertCustomTable = (rows: number, cols: number) => {
-    let tableHtml = '<table style="width: 100%; border-collapse: collapse; margin: 16px 0; direction: rtl; font-family: inherit;"><tbody>';
-    for (let r = 0; r < rows; r++) {
-      const isHeader = r === 0;
-      tableHtml += `<tr style="${isHeader ? "background-color: #f1f5f9; font-weight: bold;" : ""}">`;
-      for (let c = 0; c < cols; c++) {
-        const title = isHeader ? `ستون ${toPersianDigits(c + 1)}` : "&nbsp;";
-        if (isHeader) {
-          tableHtml += `<th style="border: 1px solid #cbd5e1; padding: 8px 12px; text-align: right; color: #1e293b;">${title}</th>`;
-        } else {
-          tableHtml += `<td style="border: 1px solid #cbd5e1; padding: 8px 12px; text-align: right;">&nbsp;</td>`;
-        }
-      }
-      tableHtml += "</tr>";
-    }
-    tableHtml += "</tbody></table><p><br/></p>";
-    insertHTML(tableHtml);
     setShowTableModal(false);
+    setSheetDataText("");
   };
 
   // Close menus on click outside
@@ -1742,6 +2135,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
       receiver: letter.receiver || "",
       type: letter.type || "internal",
       attachments: letter.attachments || [],
+      hasAttachment: letter.hasAttachment ?? ((letter.attachments && letter.attachments.length > 0) || false),
+      attachmentDescription: letter.attachmentDescription || "",
       addCompanyStamp: letter.addCompanyStamp || false,
       selectedStampIds: letter.selectedStampIds || [],
       selectedStampId: (letter.selectedStampIds && letter.selectedStampIds[0]) || "",
@@ -1777,6 +2172,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
         receiver: newLetterForm.receiver,
         type: newLetterForm.type,
         attachments: newLetterForm.attachments,
+        hasAttachment: newLetterForm.hasAttachment ?? ((newLetterForm.attachments && newLetterForm.attachments.length > 0) || false),
+        attachmentDescription: newLetterForm.attachmentDescription || "",
         addCompanyStamp: newLetterForm.addCompanyStamp,
         isPrivate: newLetterForm.isPrivate,
         signOffText: newLetterForm.signOffText,
@@ -1813,6 +2210,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
         status: SecretariatLetterStatus.PENDING,
         comments: [],
         attachments: newLetterForm.attachments,
+        hasAttachment: newLetterForm.hasAttachment ?? ((newLetterForm.attachments && newLetterForm.attachments.length > 0) || false),
+        attachmentDescription: newLetterForm.attachmentDescription || "",
         addCompanyStamp: newLetterForm.addCompanyStamp,
         isPrivate: newLetterForm.isPrivate,
         signOffText: newLetterForm.signOffText,

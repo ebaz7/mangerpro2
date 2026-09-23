@@ -1899,6 +1899,8 @@ export interface SecretariatLetter {
     
     comments: SecretariatLetterComment[];
     attachments: SecretariatLetterAttachment[];
+    hasAttachment?: boolean; // پیوست دارد یا ندارد
+    attachmentDescription?: string; // شرح یا تعداد برگ پیوست (مثلا: ۲ برگ یا تصویر قرارداد)
     addCompanyStamp?: boolean; // تیک درج مهر شرکت پای نامه
     selectedStampIds?: string[]; // شناسه‌های مهرهای انتخاب شده
     selectedStamps?: CompanyStampItem[]; // آرایه مهرهای اختصاصی انتخاب شده

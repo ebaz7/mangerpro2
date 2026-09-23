@@ -2443,6 +2443,10 @@ export const generateSecretariatLetterDoc = async (
   company,
   noLetterhead = false,
 ) => {
+  const attachmentStr = letter.hasAttachment 
+    ? (letter.attachmentDescription ? `دارد (${letter.attachmentDescription})` : (letter.attachments?.length ? `دارد (${letter.attachments.length} برگ)` : "دارد"))
+    : (letter.attachments?.length ? `دارد (${letter.attachments.length} برگ)` : "ندارد");
+
   // If a custom Word template (.docx) is uploaded, render using Docxtemplater or OpenXML injection
   if (!noLetterhead && companySettings?.wordLetterheadUrl) {
     try {
@@ -2467,13 +2471,14 @@ export const generateSecretariatLetterDoc = async (
         const hasContentTag = /\{(content|متن|متن_نامه|body|letterContent)\}/i.test(docXml);
 
         const templateData = {
-          letterNumber: letter.letterNumber || "",
-          شماره: letter.letterNumber || "",
-          شماره_نامه: letter.letterNumber || "",
-          date: letter.date || "",
-          تاریخ: letter.date || "",
-          attachments: letter.attachments?.length ? "دارد" : "ندارد",
-          پیوست: letter.attachments?.length ? "دارد" : "ندارد",
+          letterNumber: letter.letterNumber || "---",
+          شماره: letter.letterNumber || "---",
+          شماره_نامه: letter.letterNumber || "---",
+          date: letter.date || "---",
+          تاریخ: letter.date || "---",
+          attachments: attachmentStr,
+          پیوست: attachmentStr,
+          وضعیت_پیوست: attachmentStr,
           section: letter.section === "headquarters" ? "دفتر مرکزی" : "کارخانه",
           بخش: letter.section === "headquarters" ? "دفتر مرکزی" : "کارخانه",
           companyName: companyName || "",
@@ -2538,7 +2543,7 @@ export const generateSecretariatLetterDoc = async (
 
           // If letterNumber wasn't already in document XML
           if (!docXml.includes(letter.letterNumber || "NON_EXISTENT_STRING")) {
-            pList.push(createRtlP(`شماره: ${letter.letterNumber || "---"}   |   تاریخ: ${letter.date || "---"}   |   پیوست: ${letter.attachments?.length ? "دارد" : "ندارد"}`, false, 22, "left", 240));
+            pList.push(createRtlP(`شماره: ${letter.letterNumber || "---"}   |   تاریخ: ${letter.date || "---"}   |   پیوست: ${attachmentStr}`, false, 22, "left", 240));
           }
 
           if (letter.receiver) {
@@ -2621,78 +2626,100 @@ export const generateSecretariatLetterDoc = async (
                 <div style="text-align: center; margin-bottom: 20px;">
                     <img src="${makeAbsolute(effectiveImgUrl)}" style="width: 100%; object-fit: contain;" />
                 </div>
-                <table style="width: 100%; margin-bottom: 25px; border-bottom: 1px solid #ddd; padding-bottom: 10px; font-size: 11pt; font-family: '${fontFamily}', 'Tahoma', sans-serif; direction: rtl;">
+                <table style="width: 100%; margin-bottom: 25px; border-bottom: 2px solid #334155; padding-bottom: 10px; font-size: 11pt; font-family: '${fontFamily}', 'Tahoma', sans-serif; direction: rtl;">
                     <tr>
-                        <td style="text-align: right; width: 50%;"><b>شماره:</b> <span style="direction: ltr; display: inline-block;">${toPersianDigits(letter.letterNumber)}</span></td>
-                        <td style="text-align: left; width: 50%;"><b>تاریخ:</b> <span style="direction: ltr; display: inline-block;">${toPersianDigits(letter.date)}</span></td>
+                        <td style="text-align: right; width: 50%;"><b>شماره نامه:</b> <span style="direction: ltr; font-weight: bold;">${letter.letterNumber || "---"}</span></td>
+                        <td style="text-align: left; width: 50%;"><b>تاریخ:</b> <span style="direction: ltr; font-weight: bold;">${letter.date || "---"}</span></td>
                     </tr>
                     <tr>
-                        <td style="text-align: right;"><b>پیوست:</b> ${letter.attachments?.length > 0 ? "دارد" : "ندارد"}</td>
+                        <td style="text-align: right;"><b>پیوست:</b> <span style="font-weight: bold;">${attachmentStr}</span></td>
                         <td style="text-align: left;"><b>بخش:</b> ${letter.section === "headquarters" ? "دفتر مرکزی" : "کارخانه"}</td>
                     </tr>
                 </table>
             `;
     } else {
       letterheadHtml = `
-                <table style="width: 100%; margin-bottom: 30px; border-bottom: 3px double #333; padding-bottom: 15px; direction: rtl;">
+                <table style="width: 100%; margin-bottom: 25px; border-bottom: 3px double #0f172a; padding-bottom: 15px; direction: rtl; font-family: '${fontFamily}', 'Tahoma', sans-serif;">
                     <tr>
-                        <td style="width: 33%; text-align: right; vertical-align: top; font-size: 11pt; line-height: 1.6; font-family: '${fontFamily}', 'Tahoma', sans-serif;">
-                            <div><b>شماره:</b> <span style="direction: ltr; display: inline-block;">${toPersianDigits(letter.letterNumber)}</span></div>
-                            <div><b>تاریخ:</b> <span style="direction: ltr; display: inline-block;">${toPersianDigits(letter.date)}</span></div>
-                            <div><b>پیوست:</b> ${letter.attachments?.length > 0 ? "دارد" : "ندارد"}</div>
+                        <td style="width: 33%; text-align: right; vertical-align: top; font-size: 11pt; line-height: 1.8;">
+                            <div><b>شماره نامه:</b> <span style="direction: ltr; font-weight: bold; color: #0f172a;">${letter.letterNumber || "---"}</span></div>
+                            <div><b>تاریخ:</b> <span style="direction: ltr;">${letter.date || "---"}</span></div>
+                            <div><b>پیوست:</b> <span style="font-weight: bold;">${attachmentStr}</span></div>
                         </td>
-                        <td style="width: 34%; text-align: center; vertical-align: top; font-family: '${fontFamily}', 'Tahoma', sans-serif;">
-                            <div style="font-size: 11pt; font-weight: bold; margin-bottom: 5px;">باسمه تعالی</div>
-                            <div style="font-size: 14pt; font-weight: bold; color: #1e3a8a;">دبیرخانه اداری</div>
-                            <div style="font-size: 12pt; font-weight: bold; color: #555;">${companyName || "شرکت"}</div>
-                            <div style="font-size: 9pt; color: #777; margin-top: 3px;">بخش: ${letter.section === "headquarters" ? "دفتر مرکزی" : "کارخانه"}</div>
+                        <td style="width: 34%; text-align: center; vertical-align: top;">
+                            <div style="font-size: 11pt; font-weight: bold; margin-bottom: 5px; color: #475569;">باسمه تعالی</div>
+                            <div style="font-size: 15pt; font-weight: bold; color: #1e3a8a;">${companyName || "دبیرخانه اداری"}</div>
+                            <div style="font-size: 10pt; color: #64748b; margin-top: 4px;">بخش: ${letter.section === "headquarters" ? "دفتر مرکزی" : "کارخانه"}</div>
                         </td>
                         <td style="width: 33%; text-align: left; vertical-align: top;">
                             ${
                               company?.logo || companySettings?.logoUrl
                                 ? `
-                                <img src="${makeAbsolute(company?.logo || companySettings?.logoUrl)}" style="width: 70px; height: 70px; max-width: 100%; object-fit: contain;" />
+                                <img src="${makeAbsolute(company?.logo || companySettings?.logoUrl)}" style="width: 75px; height: 75px; max-width: 100%; object-fit: contain;" />
                             `
-                                : ``
+                                : `<div style="font-size: 10pt; color: #94a3b8; font-weight: bold;">دبیرخانه رسمی</div>`
                             }
                         </td>
                     </tr>
                 </table>
             `;
     }
+  } else {
+    // When noLetterhead is true (e.g. printing on pre-printed paper or clean export)
+    // Always include official header metadata block with letterNumber, date, attachments
+    letterheadHtml = `
+      <table style="width: 100%; margin-bottom: 25px; border-bottom: 2px solid #0f172a; padding-bottom: 12px; direction: rtl; font-family: '${fontFamily}', 'Tahoma', sans-serif;">
+          <tr>
+              <td style="width: 50%; text-align: right; vertical-align: middle;">
+                  <div style="font-size: 14pt; font-weight: bold; color: #1e3a8a;">${companyName || "نامه اداری و سازمانی"}</div>
+                  <div style="font-size: 9.5pt; color: #64748b; margin-top: 2px;">دبیرخانه رسمی | بخش: ${letter.section === "headquarters" ? "دفتر مرکزی" : "کارخانه"}</div>
+              </td>
+              <td style="width: 50%; text-align: left; vertical-align: middle; font-size: 10.5pt; line-height: 1.8;">
+                  <div><b>شماره نامه:</b> <span style="direction: ltr; font-weight: bold; color: #0f172a;">${letter.letterNumber || "---"}</span></div>
+                  <div><b>تاریخ:</b> <span style="direction: ltr; font-weight: bold;">${letter.date || "---"}</span></div>
+                  <div><b>پیوست:</b> <span style="font-weight: bold;">${attachmentStr}</span></div>
+              </td>
+          </tr>
+      </table>
+    `;
   }
 
   let html = `<!DOCTYPE html>
     <html lang="fa" dir="rtl">
     <head>
     <meta charset="utf-8">
-    <title>${letter.subject}</title>
+    <title>${letter.subject || "نامه اداری"}</title>
     <style>
-        body { font-family: 'Tahoma', sans-serif; direction: rtl; }
-        .letter-meta { width: 100%; margin-bottom: 20px; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
-        .letter-meta td { font-size: 10.5pt; color: #333; }
-        .letter-content { font-size: 11pt; line-height: 1.6; margin-bottom: 40px; text-align: justify; }
+        body { font-family: '${fontFamily}', 'Tahoma', sans-serif; direction: rtl; }
+        .letter-meta { width: 100%; margin-bottom: 20px; border: 1px solid #cbd5e1; background-color: #f8fafc; border-radius: 4px; padding: 10px; }
+        .letter-meta td { font-size: 11pt; color: #1e293b; padding: 6px 10px; }
+        .letter-content { font-size: 11.5pt; line-height: 1.8; margin-bottom: 40px; text-align: justify; }
         .signatures { width: 100%; margin-top: 50px; }
-        .signature-box { text-align: center; font-size: 10pt; }
+        .signature-box { text-align: center; font-size: 10.5pt; }
         .signature-image { max-height: 70px; margin-bottom: 5px; }
     </style>
     </head>
     <body>
         <div class="Section1">
             ${letterheadHtml}
-            <table class="letter-meta" style="width: 100%;">
+            <table class="letter-meta" style="width: 100%; margin-bottom: 20px; direction: rtl;">
                 <tr>
-                    <td style="text-align: right; width: 50%;"><b>به سمت:</b> ${letter.receiver || "نامشخص"}</td>
-                    <td style="text-align: left; width: 50%;"><b>موضوع:</b> ${letter.subject}</td>
+                    <td style="text-align: right; width: 60%;"><b>به:</b> ${letter.receiver || "همکاران محترم"}</td>
+                    <td style="text-align: left; width: 40%;"><b>شماره نامه:</b> <span style="direction: ltr; font-weight: bold;">${letter.letterNumber || "---"}</span></td>
                 </tr>
                 <tr>
-                    <td style="text-align: right;"><b>از طرف:</b> ${letter.sender || "نامشخص"}</td>
-                    <td style="text-align: left;"><b>بخش:</b> ${letter.section === "headquarters" ? "دفتر مرکزی" : "کارخانه"}</td>
+                    <td style="text-align: right;"><b>از:</b> ${letter.sender || "دبیرخانه"}</td>
+                    <td style="text-align: left;"><b>تاریخ:</b> <span style="direction: ltr;">${letter.date || "---"}</span></td>
                 </tr>
+                ${letter.subject && !letter.hideSubjectInLetter ? `
+                <tr>
+                    <td colspan="2" style="text-align: right; font-weight: bold; color: #1e3a8a; border-top: 1px dashed #cbd5e1; padding-top: 8px;"><b>موضوع:</b> ${letter.subject}</td>
+                </tr>
+                ` : ""}
             </table>
             
             <div class="letter-content" style="text-align: right;">
-                ${letter.hideSalutationInLetter ? "" : `<p><b>با سلام و احترام،</b></p>`}
+                ${letter.hideSalutationInLetter ? "" : `<p style="font-weight: bold; margin-bottom: 14px;">با سلام و احترام،</p>`}
                 ${letter.content}
             </div>
             

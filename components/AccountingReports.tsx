@@ -416,15 +416,19 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
         if (!raw) return { moein: '', code: '' };
         const parts = raw.split('-');
         for (const part of parts) {
-            const match = part.match(/^(11\d*|31\d*):(\d+)/);
+            const match = part.match(/^(\d+):(\d+)/);
             if (match) {
-                return {
-                    moein: match[1],
-                    code: match[2]
-                };
+                const group = match[1];
+                const code = match[2];
+                if (['11', '51', '52', '53', '54', '55'].includes(group) || group.startsWith('11') || group.startsWith('31')) {
+                    return {
+                        moein: group,
+                        code: code
+                    };
+                }
             }
         }
-        const match = raw.match(/(11\d*|31\d*):(\d+)/);
+        const match = raw.match(/(\d+):(\d+)/);
         if (match) {
             return {
                 moein: match[1],
@@ -698,19 +702,28 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
     const fetchTafsilis = async () => {
         try {
             const sql = `
-                SELECT DISTINCT 
-                    Field_003 as Code, 
-                    Field_006 as Name, 
-                    Field_005 as TafsiliCode,
-                    Field_004 as MoeinGroup
-                FROM ACT_TBL_007 
-                WHERE Field_004 LIKE '11%' OR Field_004 LIKE '31%' OR Field_003 LIKE '11%' OR Field_003 LIKE '31%'
-                ORDER BY Field_006 ASC
+                SELECT 
+                    t7.Field_003 as Code, 
+                    t7.Field_006 as Name, 
+                    t7.Field_005 as PersonCode,
+                    t7.Field_004 as TafsiliGroup,
+                    g.Field_032 as Categories,
+                    g.Field_009 as NationalId,
+                    g.Field_015 as Mobile,
+                    g.Field_036 as Sheba
+                FROM ACT_TBL_007 t7
+                LEFT JOIN GNR_TBL_001 g ON t7.Field_005 = g.Field_003
+                WHERE t7.Field_004 IN ('11', '51', '52', '53', '54', '55') 
+                   OR t7.Field_003 LIKE '11%' 
+                   OR t7.Field_003 LIKE '31%'
+                ORDER BY t7.Field_006 ASC
             `;
             const data = await runSayanQuery(sql);
-            setTafsilis(data);
+            setTafsilis(data || []);
+            return data || [];
         } catch (err) {
             console.error('Error fetching Sayan Tafsilis', err);
+            return [];
         }
     };
 
@@ -720,6 +733,12 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
     const fetchTraz = async () => {
         setIsLoading(true);
         try {
+            // Ensure tafsilis (with Sayan categories from GNR_TBL_001) are loaded
+            let activeTafsilis = tafsilis;
+            if (!activeTafsilis || activeTafsilis.length === 0) {
+                activeTafsilis = await fetchTafsilis();
+            }
+
             let sql = '';
             // If date filter is defined, query transactional tables with Sanad headers
             if (dateFrom && dateTo) {
@@ -730,11 +749,17 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                         t9.Field_015 as TafsiliRaw,
                         SUM(CAST(t9.Field_009 AS FLOAT)) as TotalBed,
                         SUM(CAST(t9.Field_010 AS FLOAT)) as TotalBes
-                                        FROM ACT_TBL_009 t9
+                    FROM ACT_TBL_009 t9
                     LEFT JOIN ACT_TBL_008 t8 ON t8.Field_004 = t9.Field_003 AND t8.Field_005 = t9.Field_004
-                    WHERE (t9.Field_015 LIKE '11%' OR t9.Field_015 LIKE '%-11%' OR t9.Field_015 LIKE '31%' OR t9.Field_015 LIKE '%-31%') 
-                      AND t9.Field_015 NOT LIKE '%-12%'
-                      AND t9.Field_015 NOT LIKE '%-13%'
+                    WHERE (
+                        t9.Field_015 LIKE '11:%' OR t9.Field_015 LIKE '%-11:%' OR
+                        t9.Field_015 LIKE '51:%' OR t9.Field_015 LIKE '%-51:%' OR
+                        t9.Field_015 LIKE '52:%' OR t9.Field_015 LIKE '%-52:%' OR
+                        t9.Field_015 LIKE '53:%' OR t9.Field_015 LIKE '%-53:%' OR
+                        t9.Field_015 LIKE '54:%' OR t9.Field_015 LIKE '%-54:%' OR
+                        t9.Field_015 LIKE '55:%' OR t9.Field_015 LIKE '%-55:%' OR
+                        t9.Field_015 LIKE '31:%' OR t9.Field_015 LIKE '%-31:%'
+                    )
                       AND t9.Field_007 NOT IN ('102', '103', '107', '109', '114', '116', '117') 
                       AND t9.Field_005 <> '9'
                       AND t8.Field_008 >= '${gregFrom}T00:00:00.000Z' 
@@ -749,9 +774,15 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                         SUM(CAST(t24.Field_006 AS FLOAT)) as TotalBed,
                         SUM(CAST(t24.Field_007 AS FLOAT)) as TotalBes
                     FROM ACT_TBL_024 t24
-                    WHERE (t24.Field_010 LIKE '11%' OR t24.Field_010 LIKE '%-11%' OR t24.Field_010 LIKE '31%' OR t24.Field_010 LIKE '%-31%') 
-                      AND t24.Field_010 NOT LIKE '%-12%'
-                      AND t24.Field_010 NOT LIKE '%-13%'
+                    WHERE (
+                        t24.Field_010 LIKE '11:%' OR t24.Field_010 LIKE '%-11:%' OR
+                        t24.Field_010 LIKE '51:%' OR t24.Field_010 LIKE '%-51:%' OR
+                        t24.Field_010 LIKE '52:%' OR t24.Field_010 LIKE '%-52:%' OR
+                        t24.Field_010 LIKE '53:%' OR t24.Field_010 LIKE '%-53:%' OR
+                        t24.Field_010 LIKE '54:%' OR t24.Field_010 LIKE '%-54:%' OR
+                        t24.Field_010 LIKE '55:%' OR t24.Field_010 LIKE '%-55:%' OR
+                        t24.Field_010 LIKE '31:%' OR t24.Field_010 LIKE '%-31:%'
+                    )
                       AND t24.Field_005 NOT IN ('102', '103', '107', '109', '114', '116', '117')
                       AND t24.Field_003 <> '9'
                     GROUP BY t24.Field_010
@@ -767,9 +798,12 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                 const code = parsed.code;
                 if (!code) return;
                 
-                const tafsili = tafsilis.find(t => t.Code === code || t.TafsiliCode === code);
+                const tafsili = (activeTafsilis || []).find((t: any) => t.Code === code || t.TafsiliCode === code || t.PersonCode === code);
                 const name = tafsili ? tafsili.Name : `کد اشخاص ${code}`;
-                const moein = parsed.moein || (tafsili?.MoeinGroup ? String(tafsili.MoeinGroup) : (code.startsWith('11') ? '11' : (code.startsWith('31') ? '31' : '')));
+                const moein = parsed.moein || (tafsili?.TafsiliGroup ? String(tafsili.TafsiliGroup) : (code.startsWith('11') ? '11' : (code.startsWith('31') ? '31' : '')));
+                const categories = tafsili?.Categories || '';
+                const personCode = tafsili?.PersonCode || '';
+                const tafsiliGroup = tafsili?.TafsiliGroup || '';
                 const bed = parseFloat(row.TotalBed || 0);
                 const bes = parseFloat(row.TotalBes || 0);
                 
@@ -778,12 +812,18 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                     existing.bed += bed;
                     existing.bes += bes;
                     existing.balance = existing.bed - existing.bes;
+                    if (!existing.categories && categories) existing.categories = categories;
+                    if (!existing.personCode && personCode) existing.personCode = personCode;
+                    if (!existing.tafsiliGroup && tafsiliGroup) existing.tafsiliGroup = tafsiliGroup;
                     if (!existing.moein && moein) existing.moein = moein;
                 } else {
                     groupedMap.set(code, {
                         code,
                         name,
                         moein,
+                        categories,
+                        personCode,
+                        tafsiliGroup,
                         bed,
                         bes,
                         balance: bed - bes
@@ -844,82 +884,65 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
     };
 
     // Helper: Determine Sayan ERP Layer & Category Info for any account
-    const getSayanCategoryInfo = (item: any): { code: '11' | '12' | '13' | '14' | '15' | '16'; label: string; priority: number } => {
-        const codeStr = String(item.code || '').trim();
-        const moeinStr = String(item.moein || '').trim();
-        const nameStr = String(item.name || '').trim();
-        const tag = String(item.categoryTag || item.category || '').trim();
+    const getSayanCategoryInfo = (item: any): { code: '11' | '12' | '13' | '14' | '15' | '16'; label: string; priority: number; categories: string[] } => {
+        const codeStr = String(item.code || item.Code || '').trim();
+        const taf = (tafsilis || []).find((t: any) => t.Code === codeStr || t.PersonCode === codeStr || (item.personCode && t.PersonCode === item.personCode));
+        const categoriesRaw = String(item.categories || taf?.Categories || '').trim();
+        const tafsiliGroup = String(item.tafsiliGroup || taf?.TafsiliGroup || item.moein || '').trim();
+        const nameStr = String(item.name || taf?.Name || '').trim();
 
-        // 14 سهامداران
-        if (
-            tag === 'shareholders' || 
-            tag === '14' || 
-            nameStr.includes('سهام') || 
-            nameStr.includes('سهامدار') || 
-            nameStr.includes('شرکا') || 
-            nameStr.includes('هیات مدیره') || 
-            nameStr.includes('هیئت مدیره') || 
-            codeStr.startsWith('314') || 
-            codeStr.startsWith('315') || 
-            codeStr.startsWith('32') || 
-            moeinStr.startsWith('314') || 
-            moeinStr.startsWith('315') || 
-            moeinStr.startsWith('32')
-        ) {
-            return { code: '14', label: '۱۴ سهامداران', priority: 4 };
+        // Parse categories like "(11)(16)" or "(12)(16)" or "(13)"
+        const foundCategories: string[] = [];
+        const matches = categoriesRaw.match(/\((\d+)\)/g);
+        if (matches) {
+            matches.forEach(m => {
+                const num = m.replace(/[()]/g, '');
+                if (num && !foundCategories.includes(num)) foundCategories.push(num);
+            });
         }
 
-        // 13 پرسنل
-        if (
-            tag === 'personnel' || 
-            tag === '13' || 
-            nameStr.includes('پرسنل') || 
-            nameStr.includes('کارمند') || 
-            nameStr.includes('همکار') || 
-            codeStr.startsWith('113') || 
-            codeStr.startsWith('313') || 
-            moeinStr.startsWith('113') || 
-            moeinStr.startsWith('313') || 
-            nameStr.startsWith('آقای ') || 
-            nameStr.startsWith('خانم ')
-        ) {
-            return { code: '13', label: '۱۳ پرسنل', priority: 3 };
+        // 1. Direct check against Sayan GNR_TBL_001.Field_032 categories & ACT_TBL_007.Field_004
+        // Priority 1: Suppliers (11)
+        if (foundCategories.includes('11')) {
+            return { code: '11', label: '۱۱ تامین‌کنندگان (حساب‌های پرداختنی)', priority: 1, categories: foundCategories };
+        }
+        // Priority 2: Customers (12)
+        if (foundCategories.includes('12')) {
+            return { code: '12', label: '۱۲ مشتریان (حساب‌های دریافتنی)', priority: 2, categories: foundCategories };
+        }
+        // Priority 3: Personnel (13) or TafsiliGroup 52/53/54/55
+        if (foundCategories.includes('13') || tafsiliGroup === '52' || tafsiliGroup === '53' || tafsiliGroup === '54' || tafsiliGroup === '55') {
+            return { code: '13', label: '۱۳ پرسنل و همکاران', priority: 3, categories: foundCategories.length ? foundCategories : ['13'] };
+        }
+        // Priority 4: Shareholders (14) or TafsiliGroup 51
+        if (foundCategories.includes('14') || tafsiliGroup === '51') {
+            return { code: '14', label: '۱۴ سهام‌داران و شرکا', priority: 4, categories: foundCategories.length ? foundCategories : ['14'] };
+        }
+        // Priority 5: Others (15)
+        if (foundCategories.includes('15')) {
+            return { code: '15', label: '۱۵ سایر اشخاص', priority: 5, categories: foundCategories };
         }
 
-        // 11 تامین کنندگان
-        if (
-            tag === 'suppliers' || 
-            tag === '11' || 
-            moeinStr.startsWith('31') || 
-            codeStr.startsWith('31') || 
-            codeStr.startsWith('3') || 
-            nameStr.includes('تامین') || 
-            nameStr.includes('پتروشیمی') || 
-            nameStr.includes('فروشنده') || 
-            nameStr.includes('بورس کالا')
-        ) {
-            return { code: '11', label: '۱۱ تامین کنندگان', priority: 1 };
+        // Fallback heuristics if person was not categorized in Sayan GNR_TBL_001
+        if (nameStr.includes('سهام') || nameStr.includes('سهامدار') || nameStr.includes('شرکا') || nameStr.includes('هیات مدیره') || nameStr.includes('هیئت مدیره')) {
+            return { code: '14', label: '۱۴ سهام‌داران و شرکا', priority: 4, categories: ['14'] };
+        }
+        if (nameStr.includes('پرسنل') || nameStr.includes('کارمند') || nameStr.includes('همکار') || nameStr.startsWith('آقای ') || nameStr.startsWith('خانم ')) {
+            return { code: '13', label: '۱۳ پرسنل و همکاران', priority: 3, categories: ['13'] };
+        }
+        if (nameStr.includes('تامین') || nameStr.includes('پتروشیمی') || nameStr.includes('پالایش') || nameStr.includes('فروشنده') || nameStr.includes('بورس کالا')) {
+            return { code: '11', label: '۱۱ تامین‌کنندگان (حساب‌های پرداختنی)', priority: 1, categories: ['11'] };
+        }
+        if (nameStr.includes('مالیات') || nameStr.includes('دارایی') || nameStr.includes('بیمه') || nameStr.includes('شهرداری') || nameStr.includes('آب و فاضلاب') || nameStr.includes('برق') || nameStr.includes('گاز')) {
+            return { code: '15', label: '۱۵ سایر اشخاص', priority: 5, categories: ['15'] };
         }
 
-        // 12 مشتریان
-        if (
-            tag === 'customers' || 
-            tag === '12' || 
-            moeinStr.startsWith('11') || 
-            codeStr.startsWith('11') || 
-            codeStr.startsWith('1') || 
-            nameStr.includes('مشتری') || 
-            nameStr.includes('صنایع') || 
-            nameStr.includes('بافندگی') || 
-            nameStr.includes('نساجی') || 
-            nameStr.includes('خریدار') || 
-            nameStr.includes('شرکت')
-        ) {
-            return { code: '12', label: '۱۲ مشتریان', priority: 2 };
+        // If in Sayan Network
+        if (foundCategories.includes('16')) {
+            return { code: '16', label: '۱۶ همه اشخاص (سایر)', priority: 6, categories: foundCategories };
         }
 
-        // 15 سایر
-        return { code: '15', label: '۱۵ سایر', priority: 5 };
+        return { code: '12', label: '۱۲ مشتریان (پیش‌فرض)', priority: 2, categories: ['12'] };
     };
 
     // Permanent Excluded Persons Handlers
@@ -962,7 +985,7 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
     const handleAutoExcludeAllShareholders = () => {
         const shareholders = trazData.filter(item => {
             const cat = getSayanCategoryInfo(item);
-            return cat.code === '14';
+            return cat.code === '14' || cat.categories.includes('14');
         });
 
         if (shareholders.length === 0) {
@@ -1040,15 +1063,15 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
             const catInfo = getSayanCategoryInfo(item);
 
             if (trazCategory === '11' || trazCategory === 'suppliers') {
-                return catInfo.code === '11';
+                return catInfo.categories.includes('11') || catInfo.code === '11';
             } else if (trazCategory === '12' || trazCategory === 'customers') {
-                return catInfo.code === '12';
+                return catInfo.categories.includes('12') || catInfo.code === '12';
             } else if (trazCategory === '13' || trazCategory === 'personnel') {
-                return catInfo.code === '13';
+                return catInfo.categories.includes('13') || catInfo.code === '13';
             } else if (trazCategory === '14' || trazCategory === 'shareholders') {
-                return catInfo.code === '14';
+                return catInfo.categories.includes('14') || catInfo.code === '14';
             } else if (trazCategory === '15' || trazCategory === 'others') {
-                return catInfo.code === '15';
+                return catInfo.categories.includes('15') || catInfo.code === '15';
             } else if (trazCategory === 'debtors') {
                 return item.balance > 0;
             } else if (trazCategory === 'creditors') {
@@ -5379,7 +5402,17 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                                     <td className="p-3 font-mono text-slate-600 font-medium">
                                                         <div className="flex items-center gap-1">
                                                             <span>{row.code}</span>
-                                                            <span className="text-[9px] px-1 py-0.2 rounded bg-slate-100 text-slate-600 font-bold" title={catInfo.label}>
+                                                            <span 
+                                                                className={`text-[9px] px-1 py-0.5 rounded font-bold border transition-colors ${
+                                                                    catInfo.code === '11' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                                                    catInfo.code === '12' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                                                    catInfo.code === '13' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                                                                    catInfo.code === '14' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                                    catInfo.code === '15' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                                                                    'bg-slate-100 text-slate-600 border-slate-200'
+                                                                }`} 
+                                                                title={catInfo.label + (catInfo.categories.length > 1 ? ` (دسته‌های سایان: ${catInfo.categories.join('، ')})` : '')}
+                                                            >
                                                                 {catInfo.code}
                                                             </span>
                                                         </div>
@@ -5514,7 +5547,16 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                                         <div>
                                                             <div className="flex items-center gap-1.5 flex-wrap">
                                                                 <span className="text-[10px] text-slate-400 font-medium font-mono">#{idx + 1} | کد: {row.code}</span>
-                                                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-bold">
+                                                                <span 
+                                                                    className={`text-[9px] px-1.5 py-0.5 rounded font-bold border ${
+                                                                        catInfo.code === '11' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                                                        catInfo.code === '12' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                                                        catInfo.code === '13' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                                                                        catInfo.code === '14' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                                        catInfo.code === '15' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                                                                        'bg-slate-100 text-slate-600 border-slate-200'
+                                                                    }`}
+                                                                >
                                                                     {catInfo.label}
                                                                 </span>
                                                             </div>
@@ -8833,7 +8875,7 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                             onClick={() => {
                                                 const shareholders = trazData.filter(t => {
                                                     const info = getSayanCategoryInfo(t);
-                                                    return info.code === '14';
+                                                    return info.code === '14' || info.categories.includes('14');
                                                 });
                                                 if (shareholders.length === 0) {
                                                     toast.error('هیچ حسابی با کد لایه ۱۴ (سهامداران) در تراز یافت نشد');

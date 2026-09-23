@@ -60,6 +60,7 @@ const formatPct = (pct: number): string => {
 
 /**
  * Builds the enterprise-grade multi-sheet Excel file for Sayan Warehouse Balance
+ * Matching the exact visual layout of the executive management report on screen.
  */
 export const exportWarehouseOverviewToExcel = (
     dataset: WarehouseExcelDataset,
@@ -91,205 +92,507 @@ export const exportWarehouseOverviewToExcel = (
     const wb = XLSX.utils.book_new();
 
     // Helper to apply RTL and column widths to a worksheet
-    const finalizeSheet = (ws: XLSX.WorkSheet, colWidths: number[]) => {
+    const finalizeSheet = (ws: XLSX.WorkSheet, colWidths: number[], merges?: XLSX.Range[]) => {
         ws['!views'] = [{ rightToLeft: true, RTL: true }];
         ws['!cols'] = colWidths.map(w => ({ wch: w }));
+        if (merges && merges.length > 0) {
+            ws['!merges'] = merges;
+        }
     };
 
-    // ==========================================
-    // SHEET 1: خلاصه مدیریتی و تراز کل (Summary & KPIs)
-    // ==========================================
+    // =========================================================================
+    // PRIMARY MASTER SHEET: گزارش جامع مدیریتی مقایسه‌ای وضعیت انبارها (Exact visual layout)
+    // =========================================================================
     if (scope === 'all' || scope === 'summary') {
-        const sumRows: any[][] = [
-            ['سامانه نمای کلی موجودی و مغایرت سالانه انبار - گزارش مدیریتی جامع'],
-            ['پایش همزمان موجودی‌های سامانه یکپارچه سایان، انبارهای تجاری، بارهای در راه و گمرک'],
-            [''],
-            ['تاریخ گزارش:', reportDate, '', 'مخاطب گزارش:', ceo],
-            ['دوره مقایسه اول:', `${r1Label} (مورخ ${r1Date})`, '', 'تنظیم‌کننده:', manager],
-            ['دوره مقایسه دوم:', `${r2Label} (مورخ ${r2Date})`, '', 'سیستم مالی/انبار:', 'سامانه یکپارچه سایان (Live ERP)'],
-            [''],
-            ['', '', '', '', '', '', ''],
-            ['جدول ۱: شاخص‌های کلان تراز وزنی زنجیره تامین و انبار (کیلوگرم)'],
-            [
-                'ردیف',
-                'سرفصل زنجیره تامین و موجودی انبارها',
-                `وزن ${r1Label} (KG)`,
-                `وزن ${r2Label} (KG)`,
-                'اختلاف وزنی (KG)',
-                'درصد تغییرات (%)',
-                'تحلیل روند و وضعیت'
-            ]
-        ];
+        const masterRows: any[][] = [];
+        const merges: XLSX.Range[] = [];
 
-        const yLast = n(summary.lastYearYarnsWeight);
-        const yCurr = n(summary.currentYarnsWeight);
-        const yDiff = yCurr - yLast;
-        const yPct = yLast > 0 ? (yDiff / yLast) * 100 : 0;
+        // Row 0: Title Header
+        masterRows.push(['گزارش مدیریتی مقایسه‌ای وضعیت انبارها']);
+        merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 14 } });
 
-        const rLast = n(summary.lastYearRawWeight);
-        const rCurr = n(summary.currentRawWeight);
-        const rDiff = rCurr - rLast;
-        const rPct = rLast > 0 ? (rDiff / rLast) * 100 : 0;
+        // Row 1: Subtitle / Audience
+        masterRows.push([`مخاطب: ${ceo}`]);
+        merges.push({ s: { r: 1, c: 0 }, e: { r: 1, c: 14 } });
 
-        const transitWeight = purchasingGoods.reduce((s, x) => s + n(x.weight), 0);
-        const customsWeight = goodsInCustoms.reduce((s, x) => s + n(x.weight), 0);
-        const domesticWeight = domesticPurchases.reduce((s, x) => s + n(x.weight), 0);
-        const commercialWeight = commercialGoods.reduce((s, x) => s + n(x.weight), 0);
-
-        const tLast = n(summary.lastYearTotalWeight) || (yLast + rLast);
-        const tCurr = n(summary.currentTotalWeight) || (yCurr + rCurr);
-        const tDiff = tCurr - tLast;
-        const tPct = tLast > 0 ? (tDiff / tLast) * 100 : 0;
-
-        sumRows.push([
-            1,
-            'کالاهای تولیدی کارخانه (نخ‌های بافته شده و انبار محصول)',
-            yLast,
-            yCurr,
-            yDiff,
-            formatPct(yPct),
-            yDiff >= 0 ? 'افزایش موجودی انبار' : 'کاهش موجودی (خروج بیشتر از تولید)'
+        // Row 2: Metadata row
+        masterRows.push([
+            'تاریخ گزارش:', reportDate,
+            '', 'دوره اول:', `${r1Label} (${r1Date})`,
+            '', 'دوره دوم:', `${r2Label} (${r2Date})`,
+            '', 'تنظیم‌کننده:', manager,
+            '', 'سیستم انبار:', 'سامانه یکپارچه سایان (Live ERP)'
         ]);
 
-        sumRows.push([
-            2,
-            'مواد اولیه، الیاف و اقلام انبار کارخانه (چیپس، لاکرا، پلی‌استر و...)',
-            rLast,
-            rCurr,
-            rDiff,
-            formatPct(rPct),
-            rDiff >= 0 ? 'افزایش ذخیره مواد اولیه' : 'افت موجودی و مصرف از انبار'
+        // Row 3: Letter introduction
+        masterRows.push([
+            `با سلام، احتراماً گزارش موجودی ${r1Label} (مورخ ${r1Date}) و مقایسه آن با ${r2Label} (مورخ ${r2Date}) مستخرج از سامانه یکپارچه سایان به همراه جزئیات بارهای در راه و گمرک به شرح ذیل تقدیم حضور می‌گردد:`
+        ]);
+        merges.push({ s: { r: 3, c: 0 }, e: { r: 3, c: 14 } });
+
+        // Row 4: Empty space
+        masterRows.push(['']);
+
+        // Row 5: Table Top Header (Merged categories)
+        const headerTopRowIdx = masterRows.length;
+        masterRows.push([
+            'ردیف',
+            'کد کالا / نخ',
+            'نوع کالا / نخ',
+            'پروفرم',
+            `موجودی انبارها (${r1Label} - مورخ ${r1Date})`, '', '', '',
+            `موجودی انبارها (${r2Label} - مورخ ${r2Date})`, '', '', '',
+            'تحلیل مغایرت و موازنه', '', ''
+        ]);
+        merges.push({ s: { r: headerTopRowIdx, c: 0 }, e: { r: headerTopRowIdx + 1, c: 0 } });
+        merges.push({ s: { r: headerTopRowIdx, c: 1 }, e: { r: headerTopRowIdx + 1, c: 1 } });
+        merges.push({ s: { r: headerTopRowIdx, c: 2 }, e: { r: headerTopRowIdx + 1, c: 2 } });
+        merges.push({ s: { r: headerTopRowIdx, c: 3 }, e: { r: headerTopRowIdx + 1, c: 3 } });
+        merges.push({ s: { r: headerTopRowIdx, c: 4 }, e: { r: headerTopRowIdx, c: 7 } });
+        merges.push({ s: { r: headerTopRowIdx, c: 8 }, e: { r: headerTopRowIdx, c: 11 } });
+        merges.push({ s: { r: headerTopRowIdx, c: 12 }, e: { r: headerTopRowIdx, c: 14 } });
+
+        // Row 6: Sub Header Columns
+        masterRows.push([
+            'ردیف',
+            'کد کالا',
+            'نوع کالا / نخ',
+            'پروفرم',
+            'کارتن',
+            'وزن (KG)',
+            'کانتینر',
+            'ارزش دلاری ($)',
+            'کارتن',
+            'وزن (KG)',
+            'کانتینر',
+            'ارزش دلاری ($)',
+            'اختلاف وزن (KG)',
+            'درصد تغییرات (%)',
+            'وضعیت'
         ]);
 
-        sumRows.push([
-            3,
-            'بارهای در حال خرید خارجی و ترانزیت در راه',
-            0,
-            transitWeight,
-            transitWeight,
-            '+۱۰۰٪',
-            'محموله فعال در زنجیره لجستیک'
-        ]);
+        let rowCounter = 1;
 
-        sumRows.push([
-            4,
-            'بارهای موجود در اماکن گمرکی (در حال ترخیص)',
-            0,
-            customsWeight,
-            customsWeight,
-            customsWeight > 0 ? '+۱۰۰٪' : '۰٪',
-            'در انتظار تکمیل تشریفات گمرکی'
-        ]);
+        // --- SECTION 1: کالاهای تولیدی کارخانه (نخ‌ها) ---
+        const s1BannerIdx = masterRows.length;
+        masterRows.push(['🧵 ۱. کالاهای تولیدی کارخانه (نخ‌های بافته شده و انبار محصول - گروه ۰۴)']);
+        merges.push({ s: { r: s1BannerIdx, c: 0 }, e: { r: s1BannerIdx, c: 14 } });
 
-        sumRows.push([
-            5,
-            'خریدهای داخلی پتروشیمی و بورس کالا',
-            0,
-            domesticWeight,
-            domesticWeight,
-            domesticWeight > 0 ? '+۱۰۰٪' : '۰٪',
-            'سفارشات قطعی داخلی'
-        ]);
+        let ySumLastW = 0, ySumCurrW = 0, ySumLastC = 0, ySumCurrC = 0, ySumLastCont = 0, ySumCurrCont = 0, ySumLastD = 0, ySumCurrD = 0;
+        yarnItems.forEach((item) => {
+            const lW = n(item.lastYearWeight);
+            const cW = n(item.currentWeight);
+            const lC = n(item.lastYearCartons);
+            const cC = n(item.currentCartons);
+            const lCont = n(item.lastYearContainers);
+            const cCont = n(item.currentContainers);
+            const lD = n(item.lastYearDollars);
+            const cD = n(item.currentDollars);
+            const diffW = cW - lW;
+            const pct = lW > 0 ? (diffW / lW) * 100 : (cW > 0 ? 100 : 0);
 
-        sumRows.push([
-            6,
-            'کالاهای تجاری و متفرقه',
-            0,
-            commercialWeight,
-            commercialWeight,
-            commercialWeight > 0 ? '+۱۰۰٪' : '۰٪',
-            'موجودی انبارهای تجاری'
-        ]);
+            ySumLastW += lW; ySumCurrW += cW;
+            ySumLastC += lC; ySumCurrC += cC;
+            ySumLastCont += lCont; ySumCurrCont += cCont;
+            ySumLastD += lD; ySumCurrD += cD;
 
-        sumRows.push([
+            masterRows.push([
+                rowCounter++,
+                item.code || '-',
+                item.name || '-',
+                item.proforma || '-',
+                lC || '-',
+                lW,
+                lCont || '-',
+                lD || '-',
+                cC || '-',
+                cW,
+                cCont || '-',
+                cD || '-',
+                diffW,
+                formatPct(pct),
+                diffW >= 0 ? 'افزایش ذخیره' : 'کاهش / مصرف'
+            ]);
+
+            if (getGroupChildItems && item.code) {
+                const childItems = getGroupChildItems(item.code);
+                if (childItems && childItems.length > 1) {
+                    childItems.forEach(ch => {
+                        masterRows.push([
+                            '',
+                            `  ↳ ${ch.itemCode}`,
+                            `     └ ${ch.itemName}`,
+                            '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', 'زیرمجموعه'
+                        ]);
+                    });
+                }
+            }
+        });
+
+        const yDiffTotal = ySumCurrW - ySumLastW;
+        const yPctTotal = ySumLastW > 0 ? (yDiffTotal / ySumLastW) * 100 : 0;
+        masterRows.push([
             '★',
-            'سرجمع کل موجودی و ورودی‌های زنجیره تامین (کل انبار)',
-            tLast,
-            tCurr,
-            tDiff,
-            formatPct(tPct),
-            tDiff >= 0 ? 'تراز مثبت و پایدار' : 'تراز نزولی و مصرفی'
+            'جمع گروه ۰۴',
+            'سرجمع کالاهای تولیدی کارخانه (نخ‌ها)',
+            '-',
+            ySumLastC,
+            ySumLastW,
+            ySumLastCont,
+            ySumLastD,
+            ySumCurrC,
+            ySumCurrW,
+            ySumCurrCont,
+            ySumCurrD,
+            yDiffTotal,
+            formatPct(yPctTotal),
+            yDiffTotal >= 0 ? 'رشد موجودی' : 'افت موجودی'
         ]);
 
-        sumRows.push(['']);
-        sumRows.push(['جدول ۲: مقایسه کانتینری و ارزش ارزی']);
-        sumRows.push([
+        // --- SECTION 2: مواد اولیه، الیاف و کارخانه (گروه ۰۱) ---
+        const s2BannerIdx = masterRows.length;
+        masterRows.push(['🏭 ۲. مواد اولیه، الیاف و اقلام انبار کارخانه (چیپس، لاکرا، پلی‌استر و...)']);
+        merges.push({ s: { r: s2BannerIdx, c: 0 }, e: { r: s2BannerIdx, c: 14 } });
+
+        let rSumLastW = 0, rSumCurrW = 0, rSumLastC = 0, rSumCurrC = 0, rSumLastCont = 0, rSumCurrCont = 0, rSumLastD = 0, rSumCurrD = 0;
+        rawItems.forEach((item) => {
+            const lW = n(item.lastYearWeight);
+            const cW = n(item.currentWeight);
+            const lC = n(item.lastYearCartons);
+            const cC = n(item.currentCartons);
+            const lCont = n(item.lastYearContainers);
+            const cCont = n(item.currentContainers);
+            const lD = n(item.lastYearDollars);
+            const cD = n(item.currentDollars);
+            const diffW = cW - lW;
+            const pct = lW > 0 ? (diffW / lW) * 100 : (cW > 0 ? 100 : 0);
+
+            rSumLastW += lW; rSumCurrW += cW;
+            rSumLastC += lC; rSumCurrC += cC;
+            rSumLastCont += lCont; rSumCurrCont += cCont;
+            rSumLastD += lD; rSumCurrD += cD;
+
+            masterRows.push([
+                rowCounter++,
+                item.code || '-',
+                item.name || '-',
+                item.proforma || '-',
+                lC || '-',
+                lW,
+                lCont || '-',
+                lD || '-',
+                cC || '-',
+                cW,
+                cCont || '-',
+                cD || '-',
+                diffW,
+                formatPct(pct),
+                diffW >= 0 ? 'افزایش ذخیره' : 'مصرف از انبار'
+            ]);
+        });
+
+        const rDiffTotal = rSumCurrW - rSumLastW;
+        const rPctTotal = rSumLastW > 0 ? (rDiffTotal / rSumLastW) * 100 : 0;
+        masterRows.push([
+            '★',
+            'جمع گروه ۰۱',
+            'سرجمع مواد اولیه و کارخانه',
+            '-',
+            rSumLastC,
+            rSumLastW,
+            rSumLastCont,
+            rSumLastD,
+            rSumCurrC,
+            rSumCurrW,
+            rSumCurrCont,
+            rSumCurrD,
+            rDiffTotal,
+            formatPct(rPctTotal),
+            rDiffTotal >= 0 ? 'رشد ذخیره' : 'مصرف از انبار'
+        ]);
+
+        // --- SECTION 3: بارهای در حال خرید خارجی و در راه ---
+        if (purchasingGoods && purchasingGoods.length > 0) {
+            const s3BannerIdx = masterRows.length;
+            masterRows.push(['🚢🛒 ۳. بارهای در حال خرید خارجی و ترانزیت در راه']);
+            merges.push({ s: { r: s3BannerIdx, c: 0 }, e: { r: s3BannerIdx, c: 14 } });
+
+            let pSumW = 0, pSumC = 0, pSumCont = 0, pSumD = 0;
+            purchasingGoods.forEach((item) => {
+                const w = n(item.weight);
+                const c = n(item.cartons);
+                const cont = n(item.container);
+                const d = n(item.dollars);
+                pSumW += w; pSumC += c; pSumCont += cont; pSumD += d;
+
+                masterRows.push([
+                    rowCounter++,
+                    item.registrationNumber ? `ثبت: ${item.registrationNumber}` : 'خرید خارجی',
+                    item.cargoType || 'محموله در راه',
+                    item.proforma || '-',
+                    '-', 0, '-', '-',
+                    c || '-',
+                    w,
+                    cont || '-',
+                    d || '-',
+                    w,
+                    '+۱۰۰٪',
+                    item.statusBadge || 'در راه ترانزیت'
+                ]);
+            });
+
+            masterRows.push([
+                '★',
+                'جمع بارهای در راه',
+                'سرجمع بارهای در حال خرید و ترانزیت',
+                '-',
+                '-', 0, '-', '-',
+                pSumC,
+                pSumW,
+                pSumCont,
+                pSumD,
+                pSumW,
+                '+۱۰۰٪',
+                'ورودی‌های فعال'
+            ]);
+        }
+
+        // --- SECTION 4: بارهای موجود در اماکن گمرکی ---
+        if (goodsInCustoms && goodsInCustoms.length > 0) {
+            const s4BannerIdx = masterRows.length;
+            masterRows.push(['🏢 ۴. بارهای موجود در اماکن گمرکی (در حال ترخیص)']);
+            merges.push({ s: { r: s4BannerIdx, c: 0 }, e: { r: s4BannerIdx, c: 14 } });
+
+            let cSumW = 0, cSumC = 0, cSumCont = 0, cSumD = 0;
+            goodsInCustoms.forEach((item) => {
+                const w = n(item.weight);
+                const c = n(item.cartons);
+                const cont = n(item.container);
+                const d = n(item.dollars);
+                cSumW += w; cSumC += c; cSumCont += cont; cSumD += d;
+
+                masterRows.push([
+                    rowCounter++,
+                    item.registrationNumber ? `ثبت: ${item.registrationNumber}` : 'گمرک',
+                    item.cargoType || 'محموله گمرکی',
+                    item.proforma || '-',
+                    '-', 0, '-', '-',
+                    c || '-',
+                    w,
+                    cont || '-',
+                    d || '-',
+                    w,
+                    '+۱۰۰٪',
+                    item.statusBadge || 'در حال ترخیص'
+                ]);
+            });
+
+            masterRows.push([
+                '★',
+                'جمع گمرک',
+                'سرجمع بارهای موجود در اماکن گمرکی',
+                '-',
+                '-', 0, '-', '-',
+                cSumC,
+                cSumW,
+                cSumCont,
+                cSumD,
+                cSumW,
+                '+۱۰۰٪',
+                'آماده ترخیص'
+            ]);
+        }
+
+        // --- SECTION 5: کالاهای تجاری و متفرقه ---
+        if (commercialGoods && commercialGoods.length > 0) {
+            const s5BannerIdx = masterRows.length;
+            masterRows.push(['🏬 ۵. کالاهای تجاری و متفرقه']);
+            merges.push({ s: { r: s5BannerIdx, c: 0 }, e: { r: s5BannerIdx, c: 14 } });
+
+            let comSumW = 0, comSumC = 0, comSumCont = 0, comSumD = 0;
+            commercialGoods.forEach((item) => {
+                const w = n(item.weight);
+                const c = n(item.cartons);
+                const cont = n(item.container);
+                const d = n(item.dollars);
+                comSumW += w; comSumC += c; comSumCont += cont; comSumD += d;
+
+                masterRows.push([
+                    rowCounter++,
+                    item.category || 'کالای تجاری',
+                    item.itemName || 'کالای تجاری',
+                    item.proforma || '-',
+                    '-', 0, '-', '-',
+                    c || '-',
+                    w,
+                    cont || '-',
+                    d || '-',
+                    w,
+                    '+۱۰۰٪',
+                    'انبار تجاری'
+                ]);
+            });
+
+            masterRows.push([
+                '★',
+                'جمع تجاری',
+                'سرجمع کالاهای تجاری و متفرقه',
+                '-',
+                '-', 0, '-', '-',
+                comSumC,
+                comSumW,
+                comSumCont,
+                comSumD,
+                comSumW,
+                '+۱۰۰٪',
+                'موجودی تجاری'
+            ]);
+        }
+
+        // --- SECTION 6: خریدهای داخلی پتروشیمی ---
+        if (domesticPurchases && domesticPurchases.length > 0) {
+            const s6BannerIdx = masterRows.length;
+            masterRows.push(['📦 ۶. خریدهای داخلی پتروشیمی و بورس کالا']);
+            merges.push({ s: { r: s6BannerIdx, c: 0 }, e: { r: s6BannerIdx, c: 14 } });
+
+            let dSumW = 0, dSumC = 0, dSumCont = 0, dSumD = 0;
+            domesticPurchases.forEach((item) => {
+                const w = n(item.weight);
+                const c = n(item.cartons);
+                const cont = n(item.container);
+                const d = n(item.dollars);
+                dSumW += w; dSumC += c; dSumCont += cont; dSumD += d;
+
+                masterRows.push([
+                    rowCounter++,
+                    item.petrochemicalName || 'بورس کالا',
+                    item.cargoType || 'پتروشیمی',
+                    item.proforma || '-',
+                    '-', 0, '-', '-',
+                    c || '-',
+                    w,
+                    cont || '-',
+                    d || '-',
+                    w,
+                    '+۱۰۰٪',
+                    item.statusBadge || 'خرید قطعی'
+                ]);
+            });
+
+            masterRows.push([
+                '★',
+                'جمع پتروشیمی',
+                'سرجمع خریدهای داخلی و بورس',
+                '-',
+                '-', 0, '-', '-',
+                dSumC,
+                dSumW,
+                dSumCont,
+                dSumD,
+                dSumW,
+                '+۱۰۰٪',
+                'خرید داخلی'
+            ]);
+        }
+
+        // --- SECTION 7: GRAND TOTAL ROW (سرجمع کل زنجیره تامین) ---
+        const transitWeight = (purchasingGoods || []).reduce((s, x) => s + n(x.weight), 0);
+        const customsWeight = (goodsInCustoms || []).reduce((s, x) => s + n(x.weight), 0);
+        const commercialWeight = (commercialGoods || []).reduce((s, x) => s + n(x.weight), 0);
+        const domesticWeight = (domesticPurchases || []).reduce((s, x) => s + n(x.weight), 0);
+
+        const grandLastW = n(summary.lastYearTotalWeight) || (ySumLastW + rSumLastW);
+        const grandCurrW = n(summary.currentTotalWeight) || (ySumCurrW + rSumCurrW + transitWeight + customsWeight + commercialWeight + domesticWeight);
+        const grandDiffW = grandCurrW - grandLastW;
+        const grandPct = grandLastW > 0 ? (grandDiffW / grandLastW) * 100 : 0;
+
+        const grandLastC = ySumLastC + rSumLastC;
+        const grandCurrC = ySumCurrC + rSumCurrC + (purchasingGoods || []).reduce((s, x) => s + n(x.cartons), 0) + (goodsInCustoms || []).reduce((s, x) => s + n(x.cartons), 0) + (commercialGoods || []).reduce((s, x) => s + n(x.cartons), 0);
+
+        const grandLastCont = n(summary.totalLastYearContainers) || (ySumLastCont + rSumLastCont);
+        const grandCurrCont = n(summary.containersTotal) || (ySumCurrCont + rSumCurrCont + (purchasingGoods || []).reduce((s, x) => s + n(x.container), 0) + (goodsInCustoms || []).reduce((s, x) => s + n(x.container), 0) + (commercialGoods || []).reduce((s, x) => s + n(x.container), 0));
+
+        const grandLastD = n(summary.totalLastYearDollars) || (ySumLastD + rSumLastD);
+        const grandCurrD = n(summary.dollarsTotal) || (ySumCurrD + rSumCurrD + (purchasingGoods || []).reduce((s, x) => s + n(x.dollars), 0) + (goodsInCustoms || []).reduce((s, x) => s + n(x.dollars), 0) + (commercialGoods || []).reduce((s, x) => s + n(x.dollars), 0));
+
+        masterRows.push(['']);
+        masterRows.push([
+            '👑',
+            'سرجمع کل',
+            'سرجمع کل موازنه وزنی، کانتینری و ارزی زنجیره تامین انبار',
+            '-',
+            grandLastC,
+            grandLastW,
+            grandLastCont,
+            grandLastD,
+            grandCurrC,
+            grandCurrW,
+            grandCurrCont,
+            grandCurrD,
+            grandDiffW,
+            formatPct(grandPct),
+            grandDiffW >= 0 ? 'تراز مثبت و پایدار' : 'تراز نزولی'
+        ]);
+
+        // --- KPI SUMMARY TABLES BELOW MASTER TABLE ---
+        masterRows.push(['']);
+        masterRows.push(['جدول خلاصه مدیریتی و موازنه شاخص‌های کلان']);
+        merges.push({ s: { r: masterRows.length - 1, c: 0 }, e: { r: masterRows.length - 1, c: 6 } });
+
+        masterRows.push([
             'ردیف',
-            'شاخص سنجش',
-            `${r1Label}`,
-            `${r2Label}`,
-            'اختلاف',
+            'سرفصل زنجیره تامین',
+            `وزن ${r1Label} (KG)`,
+            `وزن ${r2Label} (KG)`,
+            'اختلاف وزنی (KG)',
             'درصد تغییر (%)',
-            'توضیحات'
+            'تحلیل وضعیت'
         ]);
 
-        const cLast = n(summary.totalLastYearContainers);
-        const cCurr = n(summary.containersTotal);
-        const cDiff = cCurr - cLast;
-        const cPct = cLast > 0 ? (cDiff / cLast) * 100 : 0;
-
-        const dLast = n(summary.totalLastYearDollars);
-        const dCurr = n(summary.dollarsTotal);
-        const dDiff = dCurr - dLast;
-        const dPct = dLast > 0 ? (dDiff / dLast) * 100 : 0;
-
-        sumRows.push([
-            1,
-            'تعداد کانتینر معادل (Container)',
-            cLast,
-            cCurr,
-            cDiff,
-            formatPct(cPct),
-            cDiff >= 0 ? 'رشد ظرفیت کانتینری' : 'کاهش ظرفیت کانتینری'
+        masterRows.push([
+            1, 'کالاهای تولیدی کارخانه (نخ‌ها)', ySumLastW, ySumCurrW, yDiffTotal, formatPct(yPctTotal),
+            yDiffTotal >= 0 ? 'افزایش موجودی' : 'کاهش / مصرف'
+        ]);
+        masterRows.push([
+            2, 'مواد اولیه و کارخانه (چیپس، لاکرا و...)', rSumLastW, rSumCurrW, rDiffTotal, formatPct(rPctTotal),
+            rDiffTotal >= 0 ? 'افزایش ذخیره' : 'مصرف از انبار'
+        ]);
+        masterRows.push([
+            3, 'بارهای در حال خرید خارجی و در راه', 0, transitWeight, transitWeight, '+۱۰۰٪', 'محموله فعال ترانزیت'
+        ]);
+        masterRows.push([
+            4, 'بارهای موجود در اماکن گمرکی', 0, customsWeight, customsWeight, customsWeight > 0 ? '+۱۰۰٪' : '۰٪', 'در انتظار ترخیص'
+        ]);
+        masterRows.push([
+            5, 'خریدهای داخلی پتروشیمی و بورس', 0, domesticWeight, domesticWeight, domesticWeight > 0 ? '+۱۰۰٪' : '۰٪', 'سفارشات قطعی'
+        ]);
+        masterRows.push([
+            6, 'کالاهای تجاری و متفرقه', 0, commercialWeight, commercialWeight, commercialWeight > 0 ? '+۱۰۰٪' : '۰٪', 'موجودی تجاری'
+        ]);
+        masterRows.push([
+            '★', 'سرجمع کل زنجیره تامین و انبارها', grandLastW, grandCurrW, grandDiffW, formatPct(grandPct),
+            grandDiffW >= 0 ? 'تراز مثبت و پایدار' : 'تراز نزولی'
         ]);
 
-        sumRows.push([
-            2,
-            'ارزش دلاری بارهای ورودی و تجاری ($)',
-            dLast,
-            dCurr,
-            dDiff,
-            formatPct(dPct),
-            dDiff >= 0 ? 'افزایش ارزش ورودی‌ها' : 'کاهش ارزش ورودی‌ها'
+        // Signatures Block
+        masterRows.push(['']);
+        masterRows.push(['']);
+        const sigRowIdx = masterRows.length;
+        masterRows.push([
+            '', 'امضای تنظیم‌کننده / مدیر بازرگانی:', manager, '', '', '', '',
+            '', 'امضای تاییدکننده / مدیریت عامل:', ceo, '', '', '', '', ''
         ]);
+        merges.push({ s: { r: sigRowIdx, c: 1 }, e: { r: sigRowIdx, c: 3 } });
+        merges.push({ s: { r: sigRowIdx, c: 8 }, e: { r: sigRowIdx, c: 11 } });
 
-        sumRows.push(['']);
-        sumRows.push(['جدول ۳: خلاصه اقلام دارای نوسان شدید و کسری']);
-        sumRows.push([
-            'ردیف',
-            'وضعیت تحلیلی',
-            'تعداد اقلام',
-            'مجموع نوسان وزنی (KG)',
-            'توصیه مدیریتی'
-        ]);
-
-        const negWeight = negativeItems.reduce((s, x) => s + (x.diffWeight || 0), 0);
-        const groWeight = growthItems.reduce((s, x) => s + (x.diffWeight || 0), 0);
-
-        sumRows.push([
-            1,
-            'اقلام دارای کسری منفی یا افت ذخیره',
-            negativeItems.length,
-            negWeight,
-            'نیازمند برنامه‌ریزی فوری خرید و سفارش‌گذاری جایگزین'
-        ]);
-
-        sumRows.push([
-            2,
-            'اقلام دارای رشد موجودی و مازاد',
-            growthItems.length,
-            groWeight,
-            'پایش نقطه سفارش جهت جلوگیری از خواب سرمایه'
-        ]);
-
-        const wsSummary = XLSX.utils.aoa_to_sheet(sumRows);
-        finalizeSheet(wsSummary, [6, 42, 22, 22, 22, 18, 38]);
-        XLSX.utils.book_append_sheet(wb, wsSummary, 'خلاصه تراز و شاخص‌ها');
+        const wsMaster = XLSX.utils.aoa_to_sheet(masterRows);
+        finalizeSheet(wsMaster, [6, 16, 34, 16, 14, 20, 14, 16, 14, 20, 14, 16, 20, 16, 22], merges);
+        XLSX.utils.book_append_sheet(wb, wsMaster, 'گزارش جامع وضعیت انبارها');
     }
 
-    // ==========================================
-    // SHEET 2: کالاهای تولیدی (نخ‌ها) - گروه 04
-    // ==========================================
+    // =========================================================================
+    // SHEET 2: کالاهای تولیدی (نخ‌ها) - تفکیک گروه 04
+    // =========================================================================
     if (scope === 'all' || scope === 'yarns') {
         const yarnRows: any[][] = [
             ['کالاهای تولیدی کارخانه (نخ‌ها و محصولات نهایی) - مقایسه تفصیلی سالانه'],
@@ -363,7 +666,6 @@ export const exportWarehouseOverviewToExcel = (
                 diffW >= 0 ? 'افزایش ذخیره' : 'کاهش / مصرف'
             ]);
 
-            // If detail child items function is available, append sub-rows
             if (getGroupChildItems && item.code) {
                 const childItems = getGroupChildItems(item.code);
                 if (childItems && childItems.length > 1) {
@@ -372,18 +674,7 @@ export const exportWarehouseOverviewToExcel = (
                             '',
                             `  ↳ ${ch.itemCode}`,
                             `     └ ${ch.itemName}`,
-                            '-',
-                            '-',
-                            '-',
-                            '-',
-                            '-',
-                            '-',
-                            '-',
-                            '-',
-                            '-',
-                            '-',
-                            '-',
-                            'زیرمجموعه'
+                            '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', 'زیرمجموعه'
                         ]);
                     });
                 }
@@ -393,7 +684,6 @@ export const exportWarehouseOverviewToExcel = (
         const yTotalDiff = ySumCurrWeight - ySumLastWeight;
         const yTotalPct = ySumLastWeight > 0 ? (yTotalDiff / ySumLastWeight) * 100 : 0;
 
-        // Total Row
         yarnRows.push([
             '★',
             'جمع کل',
@@ -413,13 +703,13 @@ export const exportWarehouseOverviewToExcel = (
         ]);
 
         const wsYarns = XLSX.utils.aoa_to_sheet(yarnRows);
-        finalizeSheet(wsYarns, [6, 16, 32, 14, 14, 20, 14, 16, 14, 20, 14, 16, 20, 16, 18]);
+        finalizeSheet(wsYarns, [6, 16, 34, 14, 14, 20, 14, 16, 14, 20, 14, 16, 20, 16, 18]);
         XLSX.utils.book_append_sheet(wb, wsYarns, 'کالاهای تولیدی (نخ‌ها)');
     }
 
-    // ==========================================
+    // =========================================================================
     // SHEET 3: مواد اولیه و کارخانه - گروه 01
-    // ==========================================
+    // =========================================================================
     if (scope === 'all' || scope === 'raw') {
         const rawRows: any[][] = [
             ['مواد اولیه، چیپس و اقلام مصرفی انبار کارخانه - مقایسه تفصیلی'],
@@ -497,7 +787,6 @@ export const exportWarehouseOverviewToExcel = (
         const rTotalDiff = rSumCurrWeight - rSumLastWeight;
         const rTotalPct = rSumLastWeight > 0 ? (rTotalDiff / rSumLastWeight) * 100 : 0;
 
-        // Total Row
         rawRows.push([
             '★',
             'جمع کل',
@@ -517,16 +806,16 @@ export const exportWarehouseOverviewToExcel = (
         ]);
 
         const wsRaw = XLSX.utils.aoa_to_sheet(rawRows);
-        finalizeSheet(wsRaw, [6, 16, 32, 14, 16, 20, 14, 16, 16, 20, 14, 16, 20, 16, 18]);
+        finalizeSheet(wsRaw, [6, 16, 34, 14, 16, 20, 14, 16, 16, 20, 14, 16, 20, 16, 18]);
         XLSX.utils.book_append_sheet(wb, wsRaw, 'مواد اولیه کارخانه');
     }
 
-    // ==========================================
-    // SHEET 4: بارهای در راه، خرید خارجی و داخلی
-    // ==========================================
+    // =========================================================================
+    // SHEET 4: بارهای در راه و خرید خارجی
+    // =========================================================================
     if (scope === 'all' || scope === 'logistics') {
         const transitRows: any[][] = [
-            ['بارهای در حال خرید خارجی، در راه ترانزیت و خریدهای بورس و پتروشیمی'],
+            ['بارهای در حال خرید خارجی و در راه ترانزیت'],
             [`تاریخ گزارش: ${reportDate} | مخاطب: ${ceo}`],
             [''],
             [
@@ -539,7 +828,7 @@ export const exportWarehouseOverviewToExcel = (
                 'تعداد کانتینر',
                 'ارزش دلاری ($)',
                 'مبلغ ریالی (ریال)',
-                'پتروشیمی / تامین‌کننده',
+                'تامین‌کننده / مبدا',
                 'روش تسویه',
                 'وضعیت محموله'
             ]
@@ -551,7 +840,6 @@ export const exportWarehouseOverviewToExcel = (
         let pSumDollars = 0;
         let pSumRials = 0;
 
-        // Foreign purchases & in-transit
         purchasingGoods.forEach((item, idx) => {
             const w = n(item.weight);
             const c = n(item.cartons);
@@ -581,37 +869,6 @@ export const exportWarehouseOverviewToExcel = (
             ]);
         });
 
-        // Domestic & Petrochemical purchases
-        domesticPurchases.forEach((item, idx) => {
-            const w = n(item.weight);
-            const c = n(item.cartons);
-            const cont = n(item.container);
-            const dol = n(item.dollars);
-            const rial = n(item.rialAmount);
-
-            pSumWeight += w;
-            pSumCartons += c;
-            pSumContainers += cont;
-            pSumDollars += dol;
-            pSumRials += rial;
-
-            transitRows.push([
-                purchasingGoods.length + idx + 1,
-                `${item.cargoType || 'خرید داخلی'} (پتروشیمی)`,
-                item.proforma || '-',
-                item.registrationNumber || '-',
-                w,
-                c || '-',
-                cont || '-',
-                dol || '-',
-                rial || '-',
-                item.petrochemicalName || 'بورس کالا',
-                item.paymentMethod || 'نقدی / LC داخلی',
-                item.statusBadge || 'خرید قطعی پتروشیمی'
-            ]);
-        });
-
-        // Summary row
         transitRows.push([
             '★',
             'جمع کل بارهای در حال خرید و در راه',
@@ -624,7 +881,7 @@ export const exportWarehouseOverviewToExcel = (
             pSumRials,
             '-',
             '-',
-            'کل محموله‌ها'
+            'کل محموله‌های در راه'
         ]);
 
         const wsTransit = XLSX.utils.aoa_to_sheet(transitRows);
@@ -632,9 +889,9 @@ export const exportWarehouseOverviewToExcel = (
         XLSX.utils.book_append_sheet(wb, wsTransit, 'بارهای در راه و خرید');
     }
 
-    // ==========================================
+    // =========================================================================
     // SHEET 5: بارهای موجود در گمرک و ترخیص
-    // ==========================================
+    // =========================================================================
     if (scope === 'all' || scope === 'logistics') {
         const customsRows: any[][] = [
             ['بارهای موجود در اماکن گمرکی و در حال انجام تشریفات ترخیص'],
@@ -682,7 +939,6 @@ export const exportWarehouseOverviewToExcel = (
             ]);
         });
 
-        // Summary row
         customsRows.push([
             '★',
             'جمع کل بارهای گمرک',
@@ -700,9 +956,9 @@ export const exportWarehouseOverviewToExcel = (
         XLSX.utils.book_append_sheet(wb, wsCustoms, 'بارهای گمرک و ترخیص');
     }
 
-    // ==========================================
+    // =========================================================================
     // SHEET 6: کالاهای تجاری
-    // ==========================================
+    // =========================================================================
     if (scope === 'all' || scope === 'logistics') {
         const commRows: any[][] = [
             ['کالاهای تجاری و اقلام انبارهای متفرقه'],
@@ -750,7 +1006,6 @@ export const exportWarehouseOverviewToExcel = (
             ]);
         });
 
-        // Summary row
         commRows.push([
             '★',
             'جمع کل کالاهای تجاری',
@@ -768,9 +1023,85 @@ export const exportWarehouseOverviewToExcel = (
         XLSX.utils.book_append_sheet(wb, wsCommercial, 'کالای تجاری');
     }
 
-    // ==========================================
-    // SHEET 7: ماتریس تحلیل، اقلام کسری و هشدار
-    // ==========================================
+    // =========================================================================
+    // SHEET 7: خریدهای داخلی پتروشیمی
+    // =========================================================================
+    if (scope === 'all' || scope === 'logistics') {
+        const domesticRows: any[][] = [
+            ['خریدهای داخلی پتروشیمی و بورس کالا'],
+            [`تاریخ گزارش: ${reportDate} | مخاطب: ${ceo}`],
+            [''],
+            [
+                'ردیف',
+                'نوع محموله / کالا',
+                'پتروشیمی / کارخانه',
+                'شماره قرارداد / پروفرما',
+                'وزن خالص (KG)',
+                'تعداد بسته / کارتن',
+                'تعداد کانتینر / تریلی',
+                'ارزش دلاری معادل ($)',
+                'مبلغ ریالی (ریال)',
+                'روش پرداخت',
+                'وضعیت محموله'
+            ]
+        ];
+
+        let dSumWeight = 0;
+        let dSumCartons = 0;
+        let dSumContainers = 0;
+        let dSumDollars = 0;
+        let dSumRials = 0;
+
+        domesticPurchases.forEach((item, idx) => {
+            const w = n(item.weight);
+            const c = n(item.cartons);
+            const cont = n(item.container);
+            const dol = n(item.dollars);
+            const rial = n(item.rialAmount);
+
+            dSumWeight += w;
+            dSumCartons += c;
+            dSumContainers += cont;
+            dSumDollars += dol;
+            dSumRials += rial;
+
+            domesticRows.push([
+                idx + 1,
+                item.cargoType || 'پتروشیمی',
+                item.petrochemicalName || 'بورس کالا',
+                item.proforma || item.registrationNumber || '-',
+                w,
+                c || '-',
+                cont || '-',
+                dol || '-',
+                rial || '-',
+                item.paymentMethod || 'نقدی / LC داخلی',
+                item.statusBadge || 'خرید قطعی'
+            ]);
+        });
+
+        domesticRows.push([
+            '★',
+            'جمع کل خریدهای داخلی پتروشیمی',
+            '-',
+            '-',
+            dSumWeight,
+            dSumCartons,
+            dSumContainers,
+            dSumDollars,
+            dSumRials,
+            '-',
+            'کل خریدهای داخلی'
+        ]);
+
+        const wsDomestic = XLSX.utils.aoa_to_sheet(domesticRows);
+        finalizeSheet(wsDomestic, [6, 28, 22, 22, 18, 16, 18, 18, 22, 20, 20]);
+        XLSX.utils.book_append_sheet(wb, wsDomestic, 'خریدهای داخلی پتروشیمی');
+    }
+
+    // =========================================================================
+    // SHEET 8: ماتریس نظارتی اقلام دارای افت ذخیره و کسری منفی
+    // =========================================================================
     if (scope === 'all' || scope === 'variance') {
         const varRows: any[][] = [
             ['ماتریس نظارتی اقلام دارای افت موجودی و هشدار کسری انبار'],
@@ -814,59 +1145,14 @@ export const exportWarehouseOverviewToExcel = (
         });
 
         const wsVariance = XLSX.utils.aoa_to_sheet(varRows);
-        finalizeSheet(wsVariance, [6, 18, 32, 20, 20, 20, 20, 16, 22, 40]);
+        finalizeSheet(wsVariance, [6, 18, 34, 20, 20, 20, 20, 16, 22, 40]);
         XLSX.utils.book_append_sheet(wb, wsVariance, 'هشدار کسری منفی');
-    }
-
-    // ==========================================
-    // SHEET 8: ماتریس جامع مقایسه‌ای (کل اقلام)
-    // ==========================================
-    if (scope === 'all' && allComparedItems && allComparedItems.length > 0) {
-        const allRows: any[][] = [
-            ['ماتریس جامع مقایسه‌ای تمام اقلام زنجیره تامین و انبار'],
-            [`تاریخ استخراج داده: ${reportDate} | منبع: سامانه سایان ERP`],
-            [''],
-            [
-                'ردیف',
-                'کد سیستمی',
-                'شرح کالا / محموله',
-                'دسته‌بندی',
-                `وزن دوره قبل (KG)`,
-                `وزن دوره جاری (KG)`,
-                'تغییرات خالص (KG)',
-                'درصد نوسان (%)',
-                'وضعیت نوسان'
-            ]
-        ];
-
-        allComparedItems.forEach((item, idx) => {
-            const lastW = n(item.lastYearWeight);
-            const currW = n(item.currentWeight);
-            const diffW = currW - lastW;
-            const pct = item.ratio !== undefined ? item.ratio : (lastW > 0 ? (diffW / lastW) * 100 : 0);
-
-            allRows.push([
-                idx + 1,
-                item.code || '-',
-                item.name || '-',
-                item.categoryLabel || item.category || '-',
-                lastW,
-                currW,
-                diffW,
-                formatPct(pct),
-                diffW > 0 ? 'افزایش' : (diffW < 0 ? 'کاهش' : 'بدون تغییر')
-            ]);
-        });
-
-        const wsAll = XLSX.utils.aoa_to_sheet(allRows);
-        finalizeSheet(wsAll, [6, 18, 34, 20, 20, 20, 20, 16, 16]);
-        XLSX.utils.book_append_sheet(wb, wsAll, 'تراز جامع مقایسه‌ای');
     }
 
     // 2. Generate and trigger download
     const cleanDate = reportDate.replace(/[\/\\]/g, '-');
-    const scopeSuffix = scope === 'all' ? 'کامل_چندشیته' : (scope === 'summary' ? 'خلاصه_مدیریتی' : scope);
-    const fileName = `گزارش_تراز_انبار_${cleanDate}_${scopeSuffix}.xlsx`;
+    const scopeSuffix = scope === 'all' ? 'جامع_مدیریتی' : (scope === 'summary' ? 'خلاصه_تراز' : scope);
+    const fileName = `گزارش_جامع_تراز_انبار_${cleanDate}_${scopeSuffix}.xlsx`;
 
     XLSX.writeFile(wb, fileName);
 };

@@ -224,7 +224,7 @@ import {
   type SystemSettings,
   type Company,
   type SecretariatLetter,
-  type SecretariatLetterStatus,
+  SecretariatLetterStatus,
   type SecretariatLetterComment,
   type SecretariatLetterAttachment,
   type SecretariatCompanySettings,

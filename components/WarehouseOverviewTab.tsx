@@ -5,7 +5,7 @@ import {
     TrendingDown, TrendingUp, DollarSign, Calendar, RefreshCw, Settings, Eye, EyeOff,
     ChevronDown, ChevronRight, ChevronUp, AlertTriangle, AlertCircle, Send, Bell, BellRing, 
     CheckCircle2, ArrowUpRight, ArrowDownRight, ArrowUp, Sparkles, Share2, Scale, Layers, 
-    Package, Boxes, Filter, ExternalLink, Info, Download, FileDown, CheckSquare, Clock, Sliders, Navigation, Building2,
+    Package, Boxes, Filter, FilterX, ExternalLink, Info, Download, FileDown, CheckSquare, Clock, Sliders, Navigation, Building2,
     Printer, FileSpreadsheet
 } from 'lucide-react';
 import { TradeStage } from '../types';
@@ -97,6 +97,139 @@ export const WarehouseOverviewTab: React.FC = () => {
     const [purchasingGoods, setPurchasingGoods] = useState<CustomCargoItem[]>([]);
     const [domesticPurchases, setDomesticPurchases] = useState<CustomCargoItem[]>([]);
     const [commercialGoods, setCommercialGoods] = useState<CommercialGoodItem[]>([]);
+
+    // Excluded Order Registrations / Cargo Items State
+    const [excludedRegistrationNumbers, setExcludedRegistrationNumbers] = useState<string[]>(() => {
+        try {
+            const saved = localStorage.getItem('SAYAN_EXCLUDED_REGISTRATION_NUMBERS');
+            return saved ? JSON.parse(saved) : [];
+        } catch {
+            return [];
+        }
+    });
+    const [isExcludeManagerOpen, setIsExcludeManagerOpen] = useState(false);
+    const [excludeSearchTerm, setExcludeSearchTerm] = useState('');
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('SAYAN_EXCLUDED_REGISTRATION_NUMBERS', JSON.stringify(excludedRegistrationNumbers));
+        } catch (e) {
+            console.error('Failed to save excluded registrations:', e);
+        }
+    }, [excludedRegistrationNumbers]);
+
+    const isItemExcluded = (item: { id?: string; registrationNumber?: string; proforma?: string }) => {
+        if (!item) return false;
+        const reg = item.registrationNumber ? String(item.registrationNumber).trim() : '';
+        const prof = item.proforma ? String(item.proforma).trim() : '';
+        const id = item.id ? String(item.id).trim() : '';
+
+        return (
+            (reg !== '' && excludedRegistrationNumbers.includes(reg)) ||
+            (prof !== '' && excludedRegistrationNumbers.includes(prof)) ||
+            (id !== '' && excludedRegistrationNumbers.includes(id))
+        );
+    };
+
+    const toggleExcludeRegistration = (identifier: string, label?: string) => {
+        if (!identifier) return;
+        const cleanId = String(identifier).trim();
+        if (!cleanId) return;
+
+        setExcludedRegistrationNumbers(prev => {
+            const exists = prev.includes(cleanId);
+            if (exists) {
+                return prev.filter(x => x !== cleanId);
+            } else {
+                return [...prev, cleanId];
+            }
+        });
+    };
+
+    const clearAllExclusions = () => {
+        setExcludedRegistrationNumbers([]);
+    };
+
+    // Filtered visible arrays for Customs, Purchasing, and Domestic tables
+    const visibleGoodsInCustoms = useMemo(() => {
+        return goodsInCustoms.filter(item => !isItemExcluded(item));
+    }, [goodsInCustoms, excludedRegistrationNumbers]);
+
+    const visiblePurchasingGoods = useMemo(() => {
+        return purchasingGoods.filter(item => !isItemExcluded(item));
+    }, [purchasingGoods, excludedRegistrationNumbers]);
+
+    const visibleDomesticPurchases = useMemo(() => {
+        return domesticPurchases.filter(item => !isItemExcluded(item));
+    }, [domesticPurchases, excludedRegistrationNumbers]);
+
+    // All excludable items collected across all three pipeline tables
+    const allExcludableItems = useMemo(() => {
+        const items: Array<{
+            id: string;
+            registrationNumber: string;
+            proforma: string;
+            cargoType: string;
+            weight: number;
+            dollars: number;
+            rialAmount?: number;
+            categoryLabel: string;
+            categoryKey: 'customs' | 'purchasing' | 'domestic';
+        }> = [];
+
+        goodsInCustoms.forEach(item => {
+            items.push({
+                id: item.id,
+                registrationNumber: item.registrationNumber || '',
+                proforma: item.proforma || '',
+                cargoType: item.cargoType || 'بار در گمرک',
+                weight: item.weight || 0,
+                dollars: item.dollars || 0,
+                categoryLabel: 'بارهای در گمرک',
+                categoryKey: 'customs'
+            });
+        });
+
+        purchasingGoods.forEach(item => {
+            items.push({
+                id: item.id,
+                registrationNumber: item.registrationNumber || '',
+                proforma: item.proforma || '',
+                cargoType: item.cargoType || 'بار در حال خرید و در راه',
+                weight: item.weight || 0,
+                dollars: item.dollars || 0,
+                categoryLabel: 'بارهای در حال خرید و در راه',
+                categoryKey: 'purchasing'
+            });
+        });
+
+        domesticPurchases.forEach(item => {
+            items.push({
+                id: item.id,
+                registrationNumber: item.registrationNumber || '',
+                proforma: item.proforma || '',
+                cargoType: item.cargoType || 'خرید پتروشیمی',
+                weight: item.weight || 0,
+                dollars: 0,
+                rialAmount: item.rialAmount || 0,
+                categoryLabel: 'خریدهای داخلی پتروشیمی',
+                categoryKey: 'domestic'
+            });
+        });
+
+        return items;
+    }, [goodsInCustoms, purchasingGoods, domesticPurchases]);
+
+    const filteredExcludableItems = useMemo(() => {
+        if (!excludeSearchTerm.trim()) return allExcludableItems;
+        const term = excludeSearchTerm.trim().toLowerCase();
+        return allExcludableItems.filter(item =>
+            item.cargoType.toLowerCase().includes(term) ||
+            item.registrationNumber.toLowerCase().includes(term) ||
+            item.proforma.toLowerCase().includes(term) ||
+            item.categoryLabel.toLowerCase().includes(term)
+        );
+    }, [allExcludableItems, excludeSearchTerm]);
 
     // Dynamic category overrides for Sayan items
     const [itemCategories, setItemCategories] = useState<Record<string, 'raw' | 'factory' | 'other'>>({});
@@ -1124,11 +1257,11 @@ export const WarehouseOverviewTab: React.FC = () => {
     const totalCurrentContainers = useMemo(() => {
         const bg = calculateTotalSayanSum(false, 'containers');
         const transit = calculateCustomTableSum(goodsInTransit, 'container');
-        const customs = calculateCustomTableSum(goodsInCustoms, 'container');
-        const purchase = calculateCustomTableSum(purchasingGoods, 'container');
-        const domestic = calculateCustomTableSum(domesticPurchases, 'container');
+        const customs = calculateCustomTableSum(visibleGoodsInCustoms, 'container');
+        const purchase = calculateCustomTableSum(visiblePurchasingGoods, 'container');
+        const domestic = calculateCustomTableSum(visibleDomesticPurchases, 'container');
         return bg + transit + customs + purchase + domestic;
-    }, [goodsInTransit, goodsInCustoms, purchasingGoods, domesticPurchases, currentOverrides, alignedYarns, alignedImported]);
+    }, [goodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, currentOverrides, alignedYarns, alignedImported]);
 
     const totalLastYearDollars = useMemo(() => {
         return calculateTotalSayanSum(true, 'dollars');
@@ -1137,11 +1270,11 @@ export const WarehouseOverviewTab: React.FC = () => {
     const totalCurrentDollars = useMemo(() => {
         const bg = calculateTotalSayanSum(false, 'dollars');
         const transit = calculateCustomTableSum(goodsInTransit, 'dollars');
-        const customs = calculateCustomTableSum(goodsInCustoms, 'dollars');
-        const purchase = calculateCustomTableSum(purchasingGoods, 'dollars');
-        const domestic = calculateCustomTableSum(domesticPurchases, 'dollars');
+        const customs = calculateCustomTableSum(visibleGoodsInCustoms, 'dollars');
+        const purchase = calculateCustomTableSum(visiblePurchasingGoods, 'dollars');
+        const domestic = calculateCustomTableSum(visibleDomesticPurchases, 'dollars');
         return bg + transit + customs + purchase + domestic;
-    }, [goodsInTransit, goodsInCustoms, purchasingGoods, domesticPurchases, currentOverrides, alignedYarns, alignedImported]);
+    }, [goodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, currentOverrides, alignedYarns, alignedImported]);
 
     // Difference and ratio formulas matching the PDF
     const diffContainers = totalCurrentContainers - totalLastYearContainers;
@@ -1174,11 +1307,11 @@ export const WarehouseOverviewTab: React.FC = () => {
     const totalCurrentRawWeight = useMemo(() => {
         const bg = alignedImported.reduce((sum, item) => sum + getItemValue(item.code, false, 'weight', true), 0);
         const transit = calculateCustomTableSum(goodsInTransit, 'weight');
-        const customs = calculateCustomTableSum(goodsInCustoms, 'weight');
-        const purchase = calculateCustomTableSum(purchasingGoods, 'weight');
-        const domestic = calculateCustomTableSum(domesticPurchases, 'weight');
+        const customs = calculateCustomTableSum(visibleGoodsInCustoms, 'weight');
+        const purchase = calculateCustomTableSum(visiblePurchasingGoods, 'weight');
+        const domestic = calculateCustomTableSum(visibleDomesticPurchases, 'weight');
         return bg + transit + customs + purchase + domestic;
-    }, [alignedImported, goodsInTransit, goodsInCustoms, purchasingGoods, domesticPurchases, currentOverrides, sayanCurrent]);
+    }, [alignedImported, goodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, currentOverrides, sayanCurrent]);
 
     const diffRawWeight = totalCurrentRawWeight - totalLastYearRawWeight;
     const ratioRawWeight = totalLastYearRawWeight > 0 ? (diffRawWeight / totalLastYearRawWeight) * 100 : 0;
@@ -1244,7 +1377,7 @@ export const WarehouseOverviewTab: React.FC = () => {
         });
 
         // Add Goods In Customs (بارهای در گمرک)
-        goodsInCustoms.forEach((item, idx) => {
+        visibleGoodsInCustoms.forEach((item, idx) => {
             const wCurr = parseFloat(String(item.weight || 0)) || 0;
             const wLast = 0; // Current pipeline cargo
             const diff = wCurr - wLast;
@@ -1263,7 +1396,7 @@ export const WarehouseOverviewTab: React.FC = () => {
         });
 
         // Add Purchasing & In-Transit Goods (بارهای در حال خرید و در راه)
-        purchasingGoods.forEach((item, idx) => {
+        visiblePurchasingGoods.forEach((item, idx) => {
             const wCurr = parseFloat(String(item.weight || 0)) || 0;
             const wLast = 0; // Current pipeline cargo
             const diff = wCurr - wLast;
@@ -1282,7 +1415,7 @@ export const WarehouseOverviewTab: React.FC = () => {
         });
 
         // Add Domestic & Petrochemical Bourse Purchases (خریدهای داخلی پتروشیمی و بورس کالا)
-        domesticPurchases.forEach((item, idx) => {
+        visibleDomesticPurchases.forEach((item, idx) => {
             const wCurr = parseFloat(String(item.weight || 0)) || 0;
             const wLast = 0;
             const diff = wCurr - wLast;
@@ -1320,7 +1453,7 @@ export const WarehouseOverviewTab: React.FC = () => {
         });
 
         return list;
-    }, [alignedYarns, alignedImported, goodsInTransit, goodsInCustoms, purchasingGoods, domesticPurchases, commercialGoods, lastYearOverrides, currentOverrides, sayanLastYear, sayanCurrent]);
+    }, [alignedYarns, alignedImported, goodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, commercialGoods, lastYearOverrides, currentOverrides, sayanLastYear, sayanCurrent]);
 
     // Negative Items (کالاهای منفی / دارای کاهش وزنی یا موجودی منفی)
     const negativeItems = useMemo(() => {
@@ -1374,7 +1507,7 @@ export const WarehouseOverviewTab: React.FC = () => {
         }));
 
         const logisticsItems = [
-            ...goodsInCustoms.map(r => ({
+            ...visibleGoodsInCustoms.map(r => ({
                 ...r,
                 name: r.cargoType,
                 containers: r.container,
@@ -1386,7 +1519,7 @@ export const WarehouseOverviewTab: React.FC = () => {
                 categoryLabel: 'بارهای در گمرک',
                 status: r.statusBadge || 'در گمرک'
             })),
-            ...purchasingGoods.map(r => ({
+            ...visiblePurchasingGoods.map(r => ({
                 ...r,
                 name: r.cargoType,
                 containers: r.container,
@@ -1398,7 +1531,7 @@ export const WarehouseOverviewTab: React.FC = () => {
                 categoryLabel: 'بارهای در حال خرید و در راه',
                 status: r.statusBadge || 'در حال خرید / در راه'
             })),
-            ...domesticPurchases.map(r => ({
+            ...visibleDomesticPurchases.map(r => ({
                 ...r,
                 name: `${r.cargoType}${r.petrochemicalName ? ` (${r.petrochemicalName})` : ''}`,
                 containers: r.container,
@@ -1634,9 +1767,9 @@ export const WarehouseOverviewTab: React.FC = () => {
                 },
                 yarnItems: rawExport.yarnItems,
                 rawItems: rawExport.rawItems,
-                purchasingGoods,
-                domesticPurchases,
-                goodsInCustoms,
+                purchasingGoods: visiblePurchasingGoods,
+                domesticPurchases: visibleDomesticPurchases,
+                goodsInCustoms: visibleGoodsInCustoms,
                 commercialGoods,
                 growthItems,
                 negativeItems,
@@ -1993,6 +2126,22 @@ export const WarehouseOverviewTab: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
+                        {/* Order Registration Exclusion Manager Button */}
+                        <button
+                            type="button"
+                            onClick={() => setIsExcludeManagerOpen(true)}
+                            className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-800 rounded-xl px-3 py-2 text-xs font-black transition-all flex items-center gap-1.5 shadow-xs cursor-pointer relative"
+                            title="مدیریت و حذف/مخفی‌سازی ثبت‌سفارش‌های خاص از لیست و محاسبات گزارش"
+                        >
+                            <FilterX className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                            <span>حذف ثبت سفارش‌ها</span>
+                            {excludedRegistrationNumbers.length > 0 && (
+                                <span className="bg-amber-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-mono font-extrabold mr-0.5 shadow-xs">
+                                    {excludedRegistrationNumbers.length.toLocaleString('fa-IR')}
+                                </span>
+                            )}
+                        </button>
+
                         {/* Direct 1-Click Excel Export Button */}
                         <button
                             type="button"
@@ -2287,6 +2436,34 @@ export const WarehouseOverviewTab: React.FC = () => {
                     </button>
                 </div>
             </div>
+
+            {/* Excluded Items Active Alert Banner */}
+            {excludedRegistrationNumbers.length > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900 dark:text-amber-200 shadow-xs">
+                    <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span>
+                            تعداد <strong>{excludedRegistrationNumbers.length.toLocaleString('fa-IR')}</strong> ثبت‌سفارش/پرونده از این گزارش استثنا شده‌اند و از تمامی جداول، محاسبات تراز کل و خروجی اکسل/PDF حذف گردیده‌اند.
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setIsExcludeManagerOpen(true)}
+                            className="bg-amber-100 dark:bg-amber-900/50 hover:bg-amber-200 text-amber-900 dark:text-amber-100 px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer"
+                        >
+                            مدیریت لیست
+                        </button>
+                        <button
+                            type="button"
+                            onClick={clearAllExclusions}
+                            className="text-amber-700 dark:text-amber-300 hover:text-amber-950 dark:hover:text-amber-100 font-bold underline transition-all text-[11px] cursor-pointer"
+                        >
+                            بازیابی همه (نمایش مجدد)
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Dynamic Date & Period Settings Control (User Requested) */}
             {showSettings && (
@@ -2854,13 +3031,14 @@ export const WarehouseOverviewTab: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {goodsInCustoms.length === 0 ? (
+                                {visibleGoodsInCustoms.length === 0 ? (
                                     <tr>
                                         <td colSpan={isEditMode ? 8 : 7} className="py-6 text-center text-slate-400 font-medium">هیچ بار دارای کوتاژ یا اعلامیه ورود در گمرک ثبت نشده است.</td>
                                     </tr>
                                 ) : (
-                                    goodsInCustoms.map((item) => {
+                                    visibleGoodsInCustoms.map((item) => {
                                         const isCommercial = item.id.startsWith('com_');
+                                        const cleanReg = item.registrationNumber || item.proforma || item.id;
                                         return (
                                             <tr key={item.id} className="hover:bg-slate-50 text-slate-700">
                                                 <td className="py-2.5 px-3 text-right font-bold flex items-center gap-1.5 flex-wrap">
@@ -2906,7 +3084,21 @@ export const WarehouseOverviewTab: React.FC = () => {
                                                             className="w-full text-center py-1 px-2 border rounded border-slate-200 focus:outline-none"
                                                             placeholder="ثبت سفارش"
                                                         />
-                                                    ) : item.registrationNumber || '-'}
+                                                    ) : (
+                                                        <div className="flex items-center justify-center gap-1.5">
+                                                            <span className="font-mono font-bold">{item.registrationNumber || '-'}</span>
+                                                            {cleanReg && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => toggleExcludeRegistration(cleanReg, item.cargoType)}
+                                                                    className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 transition-all cursor-pointer"
+                                                                    title="حذف/مخفی‌سازی این ثبت سفارش از گزارش"
+                                                                >
+                                                                    <EyeOff className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td className="py-2.5 px-2 font-mono">
                                                     {isEditMode && !isCommercial ? (
@@ -2965,14 +3157,14 @@ export const WarehouseOverviewTab: React.FC = () => {
                                     })
                                 )}
                             </tbody>
-                            {goodsInCustoms.length > 0 && (
+                            {visibleGoodsInCustoms.length > 0 && (
                                 <tfoot>
                                     <tr className="bg-sky-950 !text-white font-extrabold border-t-2 border-sky-700" style={{ backgroundColor: '#082f49' }}>
                                         <td className="py-3 px-3 text-right !text-white font-bold" style={{ color: '#ffffff', fontWeight: 900 }} colSpan={3}>جمع بارهای در گمرک</td>
-                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(goodsInCustoms, 'weight').toLocaleString('fa-IR')}</td>
-                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(goodsInCustoms, 'cartons').toLocaleString('fa-IR')}</td>
-                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(goodsInCustoms, 'container').toLocaleString('fa-IR')}</td>
-                                        <td className="py-3 px-2 font-mono !text-emerald-300 font-bold" style={{ color: '#6ee7b7', fontWeight: 900 }}>${calculateCustomTableSum(goodsInCustoms, 'dollars').toLocaleString('en-US')}</td>
+                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(visibleGoodsInCustoms, 'weight').toLocaleString('fa-IR')}</td>
+                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(visibleGoodsInCustoms, 'cartons').toLocaleString('fa-IR')}</td>
+                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(visibleGoodsInCustoms, 'container').toLocaleString('fa-IR')}</td>
+                                        <td className="py-3 px-2 font-mono !text-emerald-300 font-bold" style={{ color: '#6ee7b7', fontWeight: 900 }}>${calculateCustomTableSum(visibleGoodsInCustoms, 'dollars').toLocaleString('en-US')}</td>
                                         {isEditMode && <td></td>}
                                     </tr>
                                 </tfoot>
@@ -3019,13 +3211,14 @@ export const WarehouseOverviewTab: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {purchasingGoods.length === 0 ? (
+                                {visiblePurchasingGoods.length === 0 ? (
                                     <tr>
                                         <td colSpan={isEditMode ? 8 : 7} className="py-6 text-center text-slate-400 font-medium">هیچ بار در حال خرید یا در راه با شرایط خرید ارز/تخصیص ثبت نشده است.</td>
                                     </tr>
                                 ) : (
-                                    purchasingGoods.map((item) => {
+                                    visiblePurchasingGoods.map((item) => {
                                         const isCommercial = item.id.startsWith('com_');
+                                        const cleanReg = item.registrationNumber || item.proforma || item.id;
                                         return (
                                             <tr key={item.id} className="hover:bg-slate-50 text-slate-700">
                                                 <td className="py-2.5 px-3 text-right font-bold flex items-center gap-1.5 flex-wrap">
@@ -3071,7 +3264,21 @@ export const WarehouseOverviewTab: React.FC = () => {
                                                             className="w-full text-center py-1 px-2 border rounded border-slate-200 focus:outline-none"
                                                             placeholder="ثبت سفارش"
                                                         />
-                                                    ) : item.registrationNumber || '-'}
+                                                    ) : (
+                                                        <div className="flex items-center justify-center gap-1.5">
+                                                            <span className="font-mono font-bold">{item.registrationNumber || '-'}</span>
+                                                            {cleanReg && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => toggleExcludeRegistration(cleanReg, item.cargoType)}
+                                                                    className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 transition-all cursor-pointer"
+                                                                    title="حذف/مخفی‌سازی این ثبت سفارش از گزارش"
+                                                                >
+                                                                    <EyeOff className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td className="py-2.5 px-2 font-mono">
                                                     {isEditMode && !isCommercial ? (
@@ -3130,14 +3337,14 @@ export const WarehouseOverviewTab: React.FC = () => {
                                     })
                                 )}
                             </tbody>
-                            {purchasingGoods.length > 0 && (
+                            {visiblePurchasingGoods.length > 0 && (
                                 <tfoot>
                                     <tr className="bg-indigo-950 !text-white font-extrabold border-t-2 border-indigo-800" style={{ backgroundColor: '#1e1b4b' }}>
                                         <td className="py-3 px-3 text-right !text-white font-bold" style={{ color: '#ffffff', fontWeight: 900 }} colSpan={3}>جمع کل بارهای در حال خرید و در راه</td>
-                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(purchasingGoods, 'weight').toLocaleString('fa-IR')}</td>
-                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(purchasingGoods, 'cartons').toLocaleString('fa-IR')}</td>
-                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(purchasingGoods, 'container').toLocaleString('fa-IR')}</td>
-                                        <td className="py-3 px-2 font-mono !text-emerald-300 font-bold" style={{ color: '#6ee7b7', fontWeight: 900 }}>${calculateCustomTableSum(purchasingGoods, 'dollars').toLocaleString('en-US')}</td>
+                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(visiblePurchasingGoods, 'weight').toLocaleString('fa-IR')}</td>
+                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(visiblePurchasingGoods, 'cartons').toLocaleString('fa-IR')}</td>
+                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(visiblePurchasingGoods, 'container').toLocaleString('fa-IR')}</td>
+                                        <td className="py-3 px-2 font-mono !text-emerald-300 font-bold" style={{ color: '#6ee7b7', fontWeight: 900 }}>${calculateCustomTableSum(visiblePurchasingGoods, 'dollars').toLocaleString('en-US')}</td>
                                         {isEditMode && <td></td>}
                                     </tr>
                                 </tfoot>
@@ -3181,13 +3388,14 @@ export const WarehouseOverviewTab: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {domesticPurchases.length === 0 ? (
+                                {visibleDomesticPurchases.length === 0 ? (
                                     <tr>
                                         <td colSpan={isEditMode ? 8 : 7} className="py-6 text-center text-slate-400 font-medium">هیچ خرید داخلی پتروشیمی در حال جریان ثبت نشده است.</td>
                                     </tr>
                                 ) : (
-                                    domesticPurchases.map((item) => {
+                                    visibleDomesticPurchases.map((item) => {
                                         const isCommercial = item.id.startsWith('com_');
+                                        const cleanReg = item.registrationNumber || item.proforma || item.id;
                                         return (
                                             <tr key={item.id} className="hover:bg-slate-50 text-slate-700">
                                                 <td className="py-2.5 px-3 text-right font-bold flex items-center gap-1.5 flex-wrap">
@@ -3249,7 +3457,21 @@ export const WarehouseOverviewTab: React.FC = () => {
                                                             className="w-full text-center py-1 px-2 border rounded border-slate-200 focus:outline-none font-mono"
                                                             placeholder="شماره قرارداد/عرضه"
                                                         />
-                                                    ) : item.registrationNumber || '-'}
+                                                    ) : (
+                                                        <div className="flex items-center justify-center gap-1.5">
+                                                            <span className="font-mono font-bold">{item.registrationNumber || '-'}</span>
+                                                            {cleanReg && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => toggleExcludeRegistration(cleanReg, item.cargoType)}
+                                                                    className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 transition-all cursor-pointer"
+                                                                    title="حذف/مخفی‌سازی این ثبت سفارش از گزارش"
+                                                                >
+                                                                    <EyeOff className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td className="py-2.5 px-2 font-mono font-bold">
                                                     {isEditMode && !isCommercial ? (
@@ -3312,14 +3534,14 @@ export const WarehouseOverviewTab: React.FC = () => {
                                     })
                                 )}
                             </tbody>
-                            {domesticPurchases.length > 0 && (
+                            {visibleDomesticPurchases.length > 0 && (
                                 <tfoot>
                                     <tr className="bg-emerald-950 !text-white font-extrabold border-t-2 border-emerald-800" style={{ backgroundColor: '#064e3b' }}>
                                         <td className="py-3 px-3 text-right !text-white font-bold" style={{ color: '#ffffff', fontWeight: 900 }} colSpan={3}>جمع کل خریدهای داخلی و پتروشیمی (بورس کالا)</td>
-                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(domesticPurchases, 'weight').toLocaleString('fa-IR')}</td>
-                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(domesticPurchases, 'cartons').toLocaleString('fa-IR')}</td>
+                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(visibleDomesticPurchases, 'weight').toLocaleString('fa-IR')}</td>
+                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(visibleDomesticPurchases, 'cartons').toLocaleString('fa-IR')}</td>
                                         <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>-</td>
-                                        <td className="py-3 px-2 font-mono !text-emerald-300 font-bold" style={{ color: '#6ee7b7', fontWeight: 900 }}>{(domesticPurchases.reduce((s, r) => s + (r.rialAmount || 0), 0)).toLocaleString('fa-IR')} ریال</td>
+                                        <td className="py-3 px-2 font-mono !text-emerald-300 font-bold" style={{ color: '#6ee7b7', fontWeight: 900 }}>{(visibleDomesticPurchases.reduce((s, r) => s + (r.rialAmount || 0), 0)).toLocaleString('fa-IR')} ریال</td>
                                         {isEditMode && <td></td>}
                                     </tr>
                                 </tfoot>

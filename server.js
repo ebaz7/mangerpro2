@@ -2655,9 +2655,27 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
 
         const parsedCommercialCustoms = [];
         const parsedCommercialPurchaseAndTransit = [];
+        const parsedCommercialDomesticPurchases = [];
 
         for (const record of activeTradeRecords) {
             const isCompleted = record.status === 'Completed' || Boolean(record.isArchived);
+
+            const isDomestic = record.purchaseType === 'domestic_bourse' || Boolean(record.petrochemicalData);
+            if (isDomestic) {
+                const isDelivered = Boolean(
+                    record.petrochemicalData?.warehouseReceipt?.isConfirmed ||
+                    record.petrochemicalData?.loadingNotice?.deliveryStatus === 'delivered_warehouse' ||
+                    isCompleted
+                );
+                if (!isDelivered) {
+                    const petroWeight = Number(record.petrochemicalData?.quantityKg) || getRecordWeight(record) || 0;
+                    parsedCommercialDomesticPurchases.push({
+                        id: `com_${record.id}`,
+                        weight: petroWeight
+                    });
+                }
+                continue;
+            }
 
             const hasTruckFreight = Boolean(
                 (record.internalShippingData?.payments && record.internalShippingData.payments.length > 0) ||
@@ -2737,19 +2755,22 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
         const baseCustoms = (overview.goodsInCustoms || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)));
         const baseTransit = (overview.goodsInTransit || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)));
         const basePurchase = (overview.purchasingGoods || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)));
+        const baseDomestic = (overview.domesticPurchases || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)));
 
         const mergedBasePurchaseAndTransit = [...basePurchase, ...baseTransit];
 
         const finalGoodsInCustoms = [...baseCustoms, ...parsedCommercialCustoms];
         const finalPurchasingGoods = [...mergedBasePurchaseAndTransit, ...parsedCommercialPurchaseAndTransit];
+        const finalDomesticPurchases = [...baseDomestic, ...parsedCommercialDomesticPurchases];
 
         const calculateCustomTableSum = (items, field) => (items || []).reduce((sum, r) => sum + (parseFloat(r[field]) || 0), 0);
 
         const customs = calculateCustomTableSum(finalGoodsInCustoms, 'weight');
         const purchase = calculateCustomTableSum(finalPurchasingGoods, 'weight');
+        const domestic = calculateCustomTableSum(finalDomesticPurchases, 'weight');
         const transit = 0;
 
-        const totalCurrentRawWeight = bg + transit + customs + purchase;
+        const totalCurrentRawWeight = bg + transit + customs + purchase + domestic;
 
         const totalLastYearAllWeight = totalLastYearYarnsWeight + totalLastYearRawWeight;
         const totalCurrentAllWeight = totalCurrentYarnsWeight + totalCurrentRawWeight;
@@ -2783,6 +2804,12 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
         });
 
         (overview.purchasingGoods || []).forEach(item => {
+            const wCurr = parseFloat(item.weight) || 0;
+            if (wCurr > 0) totalPositiveWeight += wCurr;
+            else if (wCurr < 0) totalNegativeWeight += wCurr;
+        });
+
+        (overview.domesticPurchases || []).forEach(item => {
             const wCurr = parseFloat(item.weight) || 0;
             if (wCurr > 0) totalPositiveWeight += wCurr;
             else if (wCurr < 0) totalNegativeWeight += wCurr;

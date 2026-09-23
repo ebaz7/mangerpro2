@@ -115,7 +115,7 @@ export const PrintDomesticPetrochemical: React.FC<Props> = ({ record, settings, 
     try {
       setProcessing(true);
       const fileName = `خرید_پتروشیمی_${petro.petrochemicalName || 'پتروشیمی'}_${record.fileNumber || 'پرونده'}.pdf`;
-      await generatePdf(element, fileName, { orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
+      await generatePdf({ element, fileName });
     } catch (e) {
       console.error('Error generating PDF', e);
       alert('خطا در ایجاد فایل PDF');

@@ -271,6 +271,9 @@ export const apiCall = async <T>(
             });
             clearTimeout(timeoutId);
 
+            const contentType = response.headers.get("content-type");
+            const isJson = contentType && contentType.includes("application/json");
+
             // Handle 401 Unauthorized with Token Refresh
             if (response.status === 401 && !endpoint.includes('/login') && !endpoint.includes('/auth/refresh')) {
                 const refreshToken = getRefreshToken();
@@ -330,9 +333,6 @@ export const apiCall = async <T>(
                     serverTimeOffset = serverTime - Date.now();
                 }
             }
-
-            const contentType = response.headers.get("content-type");
-            const isJson = contentType && contentType.includes("application/json");
 
             if (response.ok) {
                 let data;

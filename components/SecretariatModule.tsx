@@ -178,6 +178,8 @@ import {
   Maximize2,
   Minimize2,
   RotateCcw,
+  RotateCw,
+  Paperclip,
   Columns,
   Smartphone,
   Monitor,
@@ -5696,21 +5698,21 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                           <span className="text-[10px] text-slate-300">قالب:</span>
                           <button
                             type="button"
-                            onClick={() => applyTableTheme("corporate-blue")}
+                            onClick={() => applyTableTheme("formal-navy")}
                             className="px-1.5 py-0.5 rounded bg-blue-900/60 hover:bg-blue-800 text-[10px] font-bold text-blue-200"
                           >
                             سازمانی آبی
                           </button>
                           <button
                             type="button"
-                            onClick={() => applyTableTheme("emerald")}
+                            onClick={() => applyTableTheme("zebra-emerald")}
                             className="px-1.5 py-0.5 rounded bg-emerald-900/60 hover:bg-emerald-800 text-[10px] font-bold text-emerald-200"
                           >
                             مالی سبز
                           </button>
                           <button
                             type="button"
-                            onClick={() => applyTableTheme("classic-slate")}
+                            onClick={() => applyTableTheme("modern-slate")}
                             className="px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-[10px] font-bold text-slate-200"
                           >
                             کلاسیک

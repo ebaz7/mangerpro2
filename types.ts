@@ -1403,6 +1403,74 @@ export interface TradeRecord {
     };
     proformaHistory?: ProformaHistoryEntry[];
     attachments?: any[];
+    purchaseType?: 'import' | 'domestic_bourse'; // نوع خرید: وارداتی ارزی یا خرید داخلی پتروشیمی / بورس کالا
+    petrochemicalData?: PetrochemicalPurchaseData; // مشخصات و مراحل خرید داخلی پتروشیمی و بورس کالا
+}
+
+export interface PetrochemicalPurchaseData {
+    petrochemicalName: string; // نام پتروشیمی (تندگویان، شازند، اروند، تبریز، جم، امیرکبیر و...)
+    brokerName?: string; // کارگزاری بورس کالا (کاریزما، آگاه، مفید، مبین سرمایه، صبا جهاد و...)
+    contractNumber?: string; // شماره قرارداد / اطلاعیه خرید بورس کالا / شناسه معامله
+    proformaNumber?: string; // شماره پیش‌فاکتور داخلی پتروشیمی
+    proformaDate?: string; // تاریخ پیش‌فاکتور
+    paymentMethod: 'cash' | 'internal_lc' | 'draft_barat' | 'bourse_salaf'; // روش تسویه: نقدی / ال‌سی داخلی / برات الکترونیک / سلف
+    gradeName?: string; // گرید کالایی پتروشیمی (مثلاً چیپس پلی استر نساجی TG642، چیپس بطری BG821...)
+    quantityKg: number; // وزن / تناژ به کیلوگرم
+    basePricePerKg: number; // قیمت پایه یا معامله شده هر کیلوگرم (ریال)
+    totalGoodsPrice: number; // مبلغ خالص کالا (ریال)
+    vatAmount: number; // مالیات بر ارزش افزوده (۱۰٪ یا مقدار معین)
+    brokerageFee: number; // کارمزد کارگزاری و بورس
+    totalInvoiceAmount: number; // مبلغ کل پیش‌فاکتور و فاکتور نهایی (ریال)
+    
+    // مشخصات اعتبار اسنادی داخلی ریالی (LC)
+    internalLc?: {
+        lcNumber: string; // شماره اعتبار اسنادی
+        issuingBank: string; // بانک گشایش‌کننده
+        branch: string; // شعبه
+        issueDate: string; // تاریخ گشایش
+        dueDate: string; // تاریخ سررسید
+        lcAmount: number; // مبلغ اعتبار (ریال)
+        prepaymentAmount?: number; // پیش‌پرداخت / سپرده نقدی
+        collateralDesc?: string; // وثایق تودیع شده
+        commissionFee?: number; // کارمزد گشایش
+        status: 'draft' | 'opened' | 'settled'; // وضعیت LC
+    };
+
+    // مشخصات برات / برات الکترونیکی ریالی (Draft / Barat)
+    draftBarat?: {
+        baratNumber: string; // شماره برات
+        sepamCode?: string; // شناسه سپام / برات الکترونیک
+        bankName: string; // بانک عامل
+        issueDate: string; // تاریخ صدور
+        dueDate: string; // تاریخ سررسید
+        amount: number; // مبلغ برات (ریال)
+        drawerName: string; // برات‌کش / متعهد
+        draweeName: string; // برات‌گیر
+        status: 'draft' | 'accepted' | 'settled'; // وضعیت برات
+    };
+
+    // اعلامیه بارگیری و حواله فروش پتروشیمی
+    loadingNotice?: {
+        remittanceNumber?: string; // شماره حواله فروش پتروشیمی
+        behenyabCode?: string; // کد بهین‌یاب
+        driverName?: string; // نام راننده
+        driverPhone?: string; // شماره تماس راننده
+        driverNationalCode?: string; // کد ملی راننده
+        truckPlate?: string; // پلاک کامیون
+        waybillNumber?: string; // شماره بارنامه
+        freightCostRial?: number; // هزینه کرایه حمل
+        loadingDate?: string; // تاریخ بارگیری
+        deliveryStatus: 'pending_loading' | 'loaded' | 'dispatched' | 'delivered_warehouse'; // وضعیت بارگیری و تحویل
+    };
+
+    // رسید انبار تحویل کارخانه
+    warehouseReceipt?: {
+        receiptNumber?: string; // شماره رسید انبار
+        receivedWeightKg?: number; // وزن باسکول / رسید انبار (KG)
+        receiptDate?: string; // تاریخ تحویل به انبار
+        warehouseName?: string; // انبار مقصد
+        isConfirmed?: boolean; // تایید ورود به انبار
+    };
 }
 
 export enum MeetingStatus {

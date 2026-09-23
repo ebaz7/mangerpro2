@@ -29,6 +29,7 @@ import { matchesTradeRecord, getTradeRecordMatchHighlights, normalizeSearchText 
 import { extractAllClearancePayments, prepareRecordWithClearancePayments, getStageRecordedClearanceCost } from '../utils/tradeClearanceHelper';
 import GuaranteeAlertBanner from './trade/GuaranteeAlertBanner';
 import { checkAndNotifyGuaranteeDueDates, getGuaranteeDueStatus } from '../utils/guaranteeAlertUtils';
+import DomesticPetrochemicalTab from './trade/DomesticPetrochemicalTab';
 
 interface TradeModuleProps {
     currentUser: User;
@@ -84,11 +85,13 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
     const [newCommodityGroup, setNewCommodityGroup] = useState('');
     const [newMainCurrency, setNewMainCurrency] = useState('EUR');
     const [newRecordCompany, setNewRecordCompany] = useState('');
+    const [newPurchaseType, setNewPurchaseType] = useState<'import' | 'domestic_bourse'>('import');
+    const [purchaseTypeFilter, setPurchaseTypeFilter] = useState<'all' | 'import' | 'domestic_bourse'>('all');
 
     const [showTransferModal, setShowTransferModal] = useState(false);
     const [transferForm, setTransferForm] = useState({ targetCommodityGroup: '', newFileNumber: '', newGoodsName: '', newSellerName: '', description: '' });
     
-    const [activeTab, setActiveTab] = useState<'timeline' | 'proforma' | 'insurance' | 'allocation' | 'currency_purchase' | 'shipping_docs' | 'inspection' | 'clearance_docs' | 'green_leaf' | 'internal_shipping' | 'agent_fees' | 'final_calculation'>('timeline');
+    const [activeTab, setActiveTab] = useState<'timeline' | 'proforma' | 'domestic_petrochemical' | 'insurance' | 'allocation' | 'currency_purchase' | 'shipping_docs' | 'inspection' | 'clearance_docs' | 'green_leaf' | 'internal_shipping' | 'agent_fees' | 'final_calculation'>('timeline');
     
     const [showEditMetadataModal, setShowEditMetadataModal] = useState(false);
     const [editMetadataForm, setEditMetadataForm] = useState<Partial<TradeRecord>>({});
@@ -687,7 +690,8 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
             registrationNumber: regNo, 
             sellerName: newSellerName, 
             commodityGroup: newCommodityGroup, 
-            mainCurrency: newMainCurrency, 
+            mainCurrency: newPurchaseType === 'domestic_bourse' ? 'IRR' : newMainCurrency, 
+            purchaseType: newPurchaseType,
             items: [], 
             freightCost: 0, 
             startDate: new Date().toISOString(), 
@@ -700,6 +704,66 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
             licenseData: { transactions: [] }, 
             shippingDocuments: [] 
         }; 
+
+        if (newPurchaseType === 'domestic_bourse') {
+            newRecord.petrochemicalData = {
+                petrochemicalName: newSellerName || 'پتروشیمی شهید تندگویان',
+                brokerName: 'کارگزاری بورس کالا',
+                contractNumber: regNo || proformaNo || '',
+                proformaNumber: proformaNo || '',
+                proformaDate: new Date().toISOString().split('T')[0],
+                paymentMethod: 'internal_lc',
+                gradeName: newGoodsName || 'چیپس پلی استر نساجی TG642',
+                quantityKg: 50000,
+                basePricePerKg: 0,
+                totalGoodsPrice: 0,
+                vatAmount: 0,
+                brokerageFee: 0,
+                totalInvoiceAmount: 0,
+                internalLc: {
+                    lcNumber: '',
+                    issuingBank: 'بانک تجارت',
+                    branch: 'شعبه مرکزی',
+                    issueDate: '',
+                    dueDate: '',
+                    lcAmount: 0,
+                    prepaymentAmount: 0,
+                    collateralDesc: '',
+                    commissionFee: 0,
+                    status: 'draft'
+                },
+                draftBarat: {
+                    baratNumber: '',
+                    sepamCode: '',
+                    bankName: 'بانک ملت',
+                    issueDate: '',
+                    dueDate: '',
+                    amount: 0,
+                    drawerName: newRecordCompany,
+                    draweeName: newSellerName || 'پتروشیمی',
+                    status: 'draft'
+                },
+                loadingNotice: {
+                    remittanceNumber: '',
+                    behenyabCode: '',
+                    driverName: '',
+                    driverPhone: '',
+                    driverNationalCode: '',
+                    truckPlate: '',
+                    waybillNumber: '',
+                    freightCostRial: 0,
+                    loadingDate: '',
+                    deliveryStatus: 'pending_loading'
+                },
+                warehouseReceipt: {
+                    receiptNumber: '',
+                    receivedWeightKg: 0,
+                    receiptDate: '',
+                    warehouseName: 'انبار مرکزی مواد اولیه کارخانه',
+                    isConfirmed: false
+                }
+            };
+        }
         
         STAGES.forEach(stage => { 
             newRecord.stages[stage] = { 
@@ -708,7 +772,7 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                 description: '', 
                 costRial: 0, 
                 costCurrency: 0, 
-                currencyType: newMainCurrency, 
+                currencyType: newPurchaseType === 'domestic_bourse' ? 'IRR' : newMainCurrency, 
                 attachments: [], 
                 updatedAt: Date.now(), 
                 updatedBy: '' 
@@ -727,8 +791,9 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
         setNewSellerName('');
         setNewCommodityGroup('');
         setNewRecordCompany('');
+        setNewPurchaseType('import');
         setSelectedRecord(newRecord); 
-        setActiveTab('proforma'); 
+        setActiveTab(newPurchaseType === 'domestic_bourse' ? 'domestic_petrochemical' : 'proforma'); 
         setViewMode('details'); 
     };
 
@@ -3116,6 +3181,11 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                     </div>
 
                     <div className="flex gap-1.5 sm:gap-2 overflow-x-auto py-0.5 custom-scrollbar">
+                        {selectedRecord?.purchaseType === 'domestic_bourse' && (
+                            <button type="button" onClick={() => setActiveTab('domestic_petrochemical')} className={`px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap transition-colors ${activeTab === 'domestic_petrochemical' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'}`}>
+                                🏢 خرید پتروشیمی و بورس کالا
+                            </button>
+                        )}
                         <button type="button" onClick={() => setActiveTab('timeline')} className={`px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap transition-colors ${activeTab === 'timeline' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>تایم‌لاین</button>
                         <button type="button" onClick={() => setActiveTab('proforma')} className={`px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap transition-colors ${activeTab === 'proforma' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>پروفرما</button>
                         <button type="button" onClick={() => setActiveTab('insurance')} className={`px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap transition-colors ${activeTab === 'insurance' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>بیمه</button>
@@ -3134,6 +3204,14 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                 {/* Content Area */}
                 <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-zinc-900">
                     
+                    {activeTab === 'domestic_petrochemical' && (
+                        <DomesticPetrochemicalTab
+                            record={selectedRecord}
+                            onUpdateRecord={persistRecordUpdate}
+                            currentUser={currentUser}
+                        />
+                    )}
+
                     {activeTab === 'timeline' && (
                         <div className="p-2.5 sm:p-6 max-w-4xl mx-auto">
                             <div className="relative border-r-2 border-gray-200/50 dark:border-white/10 mr-2 sm:mr-4 space-y-3.5 sm:space-y-6 pr-4 sm:pr-8">
@@ -5333,7 +5411,11 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                         .map(record => {
                             const matchHighlights = searchTerm.trim() !== '' ? getTradeRecordMatchHighlights(record, searchTerm) : [];
                             return (
-                            <div key={record.id} onClick={() => { setSelectedRecord(record); setViewMode('details'); setActiveTab('timeline'); }} className="glass-panel p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-all cursor-pointer group border-l-4 border-l-transparent hover:border-l-blue-500 relative">
+                            <div key={record.id} onClick={() => { 
+                                setSelectedRecord(record); 
+                                setViewMode('details'); 
+                                setActiveTab(record.purchaseType === 'domestic_bourse' ? 'domestic_petrochemical' : 'timeline'); 
+                            }} className="glass-panel p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-all cursor-pointer group border-l-4 border-l-transparent hover:border-l-blue-500 relative">
                                 {/* ACTIONS: COPY & DELETE BUTTONS - Moved to Right to avoid status overlap */}
                                 <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all z-10">
                                     <button type="button" 
@@ -5355,6 +5437,11 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                                 <div className="flex justify-between items-start mb-3">
                                     <h3 className="font-bold text-gray-800 line-clamp-1 pr-8" title={record.goodsName}>{record.goodsName}</h3>
                                     <div className="flex items-center gap-1">
+                                        {record.purchaseType === 'domestic_bourse' && (
+                                            <span className="text-[10px] px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold flex items-center gap-1">
+                                                🏢 پتروشیمی/بورس
+                                            </span>
+                                        )}
                                         {record.isArchived && (
                                             <span className="text-[10px] px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 border border-amber-300 font-bold flex items-center gap-1">
                                                 <Archive size={10} /> بایگانی
@@ -5414,10 +5501,45 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                         <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-100 dark:border-gray-800">
                             <div>
                                 <h3 className="font-bold text-xl text-gray-900 dark:text-gray-100">ثبت پرونده جدید</h3>
-                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">مشخصات اولیه پرونده تجاری یا پروفرم را وارد کنید</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">نوع پرونده تجاری و مشخصات اولیه را وارد کنید</p>
                             </div>
                             <button type="button" onClick={() => setShowNewModal(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all"><X size={22} className="text-gray-400 hover:text-red-500" /></button>
                         </div>
+
+                        {/* Purchase Type Selector */}
+                        <div className="grid grid-cols-2 gap-2 p-1.5 bg-gray-100 dark:bg-gray-800/80 rounded-2xl mb-4 text-xs font-bold">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setNewPurchaseType('import');
+                                    setNewMainCurrency('EUR');
+                                }}
+                                className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+                                    newPurchaseType === 'import'
+                                        ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-300 shadow-sm'
+                                        : 'text-gray-600 dark:text-gray-400'
+                                }`}
+                            >
+                                <span>🌐 واردات خارجی (ارزی)</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setNewPurchaseType('domestic_bourse');
+                                    setNewMainCurrency('IRR');
+                                    if (!newSellerName) setNewSellerName('پتروشیمی شهید تندگویان');
+                                    if (!newGoodsName) setNewGoodsName('چیپس نساجی TG642');
+                                }}
+                                className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+                                    newPurchaseType === 'domestic_bourse'
+                                        ? 'bg-emerald-600 text-white shadow-sm'
+                                        : 'text-gray-600 dark:text-gray-400'
+                                }`}
+                            >
+                                <span>🏢 خرید داخلی پتروشیمی (بورس/LC)</span>
+                            </button>
+                        </div>
+
                         <div className="space-y-4 text-gray-800 dark:text-gray-200">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-1.5">

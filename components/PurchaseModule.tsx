@@ -3673,22 +3673,32 @@ const ProfessionalProformaModal = ({ request, onClose, onSuccess, currentUser, i
     const [vendor, setVendor] = useState(initialVendorData?.vendorName || '');
     const [phone, setPhone] = useState(initialVendorData?.vendorPhone || '');
     const [num, setNum] = useState(initialVendorData?.number || '');
-    const [items, setItems] = useState(() => {
-        if (initialVendorData?.items && Array.isArray(initialVendorData.items)) {
+
+    const getInitialItems = () => {
+        if (initialVendorData?.items && Array.isArray(initialVendorData.items) && initialVendorData.items.length > 0) {
             return initialVendorData.items;
         }
-        if (initialVendorData) {
-            return [{
+        if (request?.items && Array.isArray(request.items) && request.items.length > 0) {
+            return request.items.map((it: any) => ({
                 id: generateUUID(),
-                description: initialVendorData.description || request.itemName,
-                quantity: request.quantity || 1,
-                unit: request.unit || 'عدد',
-                unitPrice: initialVendorData.unitPrice || 0,
-                totalPrice: (request.quantity || 1) * (initialVendorData.unitPrice || 0)
-            }];
+                description: it.itemName + (it.specifications ? ` (${it.specifications})` : ''),
+                quantity: it.quantity !== undefined ? it.quantity : 1,
+                unit: it.unit || 'عدد',
+                unitPrice: initialVendorData?.unitPrice || 0,
+                totalPrice: (it.quantity !== undefined ? it.quantity : 1) * (initialVendorData?.unitPrice || 0)
+            }));
         }
-        return [{ id: generateUUID(), description: request.itemName, quantity: request.quantity, unit: request.unit, unitPrice: 0, totalPrice: 0 }];
-    });
+        return [{
+            id: generateUUID(),
+            description: initialVendorData?.description || request?.itemName || '',
+            quantity: request?.quantity !== undefined ? request.quantity : 1,
+            unit: request?.unit || 'عدد',
+            unitPrice: initialVendorData?.unitPrice || 0,
+            totalPrice: (request?.quantity !== undefined ? request.quantity : 1) * (initialVendorData?.unitPrice || 0)
+        }];
+    };
+
+    const [items, setItems] = useState<PurchaseProformaItem[]>(getInitialItems);
     const [tax, setTax] = useState(initialVendorData?.taxAmount || 0);
     const [discount, setDiscount] = useState(initialVendorData?.discountAmount || 0);
     const [attachments, setAttachments] = useState<PurchaseAttachment[]>(initialVendorData?.attachments || []);
@@ -3703,8 +3713,17 @@ const ProfessionalProformaModal = ({ request, onClose, onSuccess, currentUser, i
             if (initialVendorData.number) setNum(initialVendorData.number);
             if (initialVendorData.taxAmount !== undefined) setTax(initialVendorData.taxAmount);
             if (initialVendorData.discountAmount !== undefined) setDiscount(initialVendorData.discountAmount);
-            if (initialVendorData.items && Array.isArray(initialVendorData.items)) {
+            if (initialVendorData.items && Array.isArray(initialVendorData.items) && initialVendorData.items.length > 0) {
                 setItems(initialVendorData.items);
+            } else if (request?.items && Array.isArray(request.items) && request.items.length > 0) {
+                setItems(request.items.map((it: any) => ({
+                    id: generateUUID(),
+                    description: it.itemName + (it.specifications ? ` (${it.specifications})` : ''),
+                    quantity: it.quantity !== undefined ? it.quantity : 1,
+                    unit: it.unit || 'عدد',
+                    unitPrice: initialVendorData.unitPrice || 0,
+                    totalPrice: (it.quantity !== undefined ? it.quantity : 1) * (initialVendorData.unitPrice || 0)
+                })));
             } else if (initialVendorData.unitPrice !== undefined) {
                 setItems(prev => prev.map((it, idx) => idx === 0 ? {
                     ...it,
@@ -3718,6 +3737,28 @@ const ProfessionalProformaModal = ({ request, onClose, onSuccess, currentUser, i
             }
         }
     }, [initialVendorData]);
+
+    const handleResetToRequestItems = () => {
+        if (request?.items && Array.isArray(request.items) && request.items.length > 0) {
+            setItems(request.items.map((it: any) => ({
+                id: generateUUID(),
+                description: it.itemName + (it.specifications ? ` (${it.specifications})` : ''),
+                quantity: it.quantity !== undefined ? it.quantity : 1,
+                unit: it.unit || 'عدد',
+                unitPrice: 0,
+                totalPrice: 0
+            })));
+        } else {
+            setItems([{
+                id: generateUUID(),
+                description: request?.itemName || '',
+                quantity: request?.quantity !== undefined ? request.quantity : 1,
+                unit: request?.unit || 'عدد',
+                unitPrice: 0,
+                totalPrice: 0
+            }]);
+        }
+    };
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -3798,7 +3839,9 @@ const ProfessionalProformaModal = ({ request, onClose, onSuccess, currentUser, i
                         <h3 className="font-black text-xl text-gray-800">
                             {initialVendorData?.id ? 'ویرایش پیش‌فاکتور حرفه‌ای' : 'ثبت پیش‌فاکتور حرفه‌ای'}
                         </h3>
-                        <p className="text-xs text-gray-500 font-bold mt-0.5">درخواست شماره: {request.requestNumber} - کالا: {request.itemName}</p>
+                        <p className="text-xs text-gray-500 font-bold mt-0.5">
+                            درخواست شماره: {request.requestNumber} - کالا: {request.items && request.items.length > 1 ? `${request.items[0]?.itemName || request.itemName} (+${request.items.length - 1} قلم دیگر)` : (request.itemName || '')}
+                        </p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full cursor-pointer"><XCircle/></button>
                 </div>
@@ -3834,32 +3877,119 @@ const ProfessionalProformaModal = ({ request, onClose, onSuccess, currentUser, i
                         <div><label className="text-xs font-bold text-gray-500 block mb-1">شماره پیش‌فاکتور</label><input className="w-full border rounded-xl p-3 text-sm" value={num} onChange={e=>setNum(e.target.value)} placeholder="اختیاری" /></div>
                     </div>
 
-                    <div className="border rounded-2xl overflow-hidden">
-                        <table className="w-full text-xs">
-                            <thead className="bg-gray-100">
-                                <tr>
-                                    <th className="p-3 text-right">شرح کالا/خدمات</th>
-                                    <th className="p-3 w-20">تعداد</th>
-                                    <th className="p-3 w-24">واحد</th>
-                                    <th className="p-3 w-32">فی (ریال)</th>
-                                    <th className="p-3 w-32">جمع کل</th>
-                                    <th className="p-3 w-10"></th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y">
-                                {items.map(it => (
-                                    <tr key={it.id}>
-                                        <td className="p-2"><input className="w-full p-2 bg-transparent" value={it.description} onChange={e=>updateItem(it.id, 'description', e.target.value)} /></td>
-                                        <td className="p-2"><input type="number" className="w-full p-2 bg-transparent text-center font-bold" value={it.quantity} onChange={e=>updateItem(it.id, 'quantity', +e.target.value)} /></td>
-                                        <td className="p-2"><input className="w-full p-2 bg-transparent text-center" value={it.unit} onChange={e=>updateItem(it.id, 'unit', e.target.value)} /></td>
-                                        <td className="p-2"><input type="number" className="w-full p-2 bg-transparent text-center font-bold text-indigo-600" value={it.unitPrice} onChange={e=>updateItem(it.id, 'unitPrice', +e.target.value)} /></td>
-                                        <td className="p-2 text-center font-black">{formatCurrency(it.totalPrice)}</td>
-                                        <td className="p-2"><button onClick={()=>removeItem(it.id)} className="text-red-500 cursor-pointer"><Trash2 size={16}/></button></td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                        <button onClick={addItem} className="w-full py-3 bg-gray-50 text-indigo-600 font-bold hover:bg-indigo-50 border-t border-dashed cursor-pointer">+ افزودن ردیف جدید</button>
+                    <div className="border rounded-2xl overflow-hidden bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 shadow-sm">
+                        <div className="p-3 bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-800 flex flex-wrap justify-between items-center gap-2">
+                            <div className="flex items-center gap-2">
+                                <Package size={16} className="text-indigo-600 dark:text-indigo-400" />
+                                <span className="text-xs font-black text-gray-800 dark:text-gray-200">
+                                    اقلام و ردیف‌های پیش‌فاکتور ({items.length} ردیف)
+                                </span>
+                            </div>
+                            {request?.items && request.items.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={handleResetToRequestItems}
+                                    className="px-2.5 py-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors flex items-center gap-1 cursor-pointer"
+                                    title="بارگذاری مجدد اقلام از فرم درخواست خرید"
+                                >
+                                    <RotateCcw size={12} />
+                                    <span>بارگذاری مجدد اقلام درخواست ({request.items.length} قلم)</span>
+                                </button>
+                            )}
+                        </div>
+
+                        {items.length > 0 ? (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-xs">
+                                    <thead className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                                        <tr>
+                                            <th className="p-3 w-10 text-center">#</th>
+                                            <th className="p-3 text-right">شرح کالا/خدمات</th>
+                                            <th className="p-3 w-24 text-center">تعداد</th>
+                                            <th className="p-3 w-24 text-center">واحد</th>
+                                            <th className="p-3 w-36 text-center">فی (ریال)</th>
+                                            <th className="p-3 w-36 text-center">جمع کل (ریال)</th>
+                                            <th className="p-3 w-12 text-center"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                                        {items.map((it, idx) => (
+                                            <tr key={it.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30">
+                                                <td className="p-2 text-center font-mono text-gray-400 font-bold">{idx + 1}</td>
+                                                <td className="p-2">
+                                                    <input 
+                                                        className="w-full p-2 bg-transparent border border-transparent hover:border-gray-200 focus:border-indigo-500 rounded-lg focus:bg-white dark:focus:bg-gray-800 transition-all text-xs font-bold" 
+                                                        value={it.description} 
+                                                        placeholder="شرح و مشخصات کالا..."
+                                                        onChange={e => updateItem(it.id, 'description', e.target.value)} 
+                                                    />
+                                                </td>
+                                                <td className="p-2">
+                                                    <input 
+                                                        type="number" 
+                                                        className="w-full p-2 bg-transparent border border-transparent hover:border-gray-200 focus:border-indigo-500 rounded-lg focus:bg-white dark:focus:bg-gray-800 text-center font-bold text-xs" 
+                                                        value={it.quantity} 
+                                                        min="0"
+                                                        step="any"
+                                                        onChange={e => updateItem(it.id, 'quantity', +e.target.value)} 
+                                                    />
+                                                </td>
+                                                <td className="p-2">
+                                                    <input 
+                                                        className="w-full p-2 bg-transparent border border-transparent hover:border-gray-200 focus:border-indigo-500 rounded-lg focus:bg-white dark:focus:bg-gray-800 text-center text-xs" 
+                                                        value={it.unit} 
+                                                        placeholder="واحد"
+                                                        onChange={e => updateItem(it.id, 'unit', e.target.value)} 
+                                                    />
+                                                </td>
+                                                <td className="p-2">
+                                                    <input 
+                                                        type="number" 
+                                                        className="w-full p-2 bg-transparent border border-transparent hover:border-gray-200 focus:border-indigo-500 rounded-lg focus:bg-white dark:focus:bg-gray-800 text-center font-bold text-indigo-600 dark:text-indigo-400 text-xs" 
+                                                        value={it.unitPrice} 
+                                                        min="0"
+                                                        onChange={e => updateItem(it.id, 'unitPrice', +e.target.value)} 
+                                                    />
+                                                </td>
+                                                <td className="p-2 text-center font-black text-indigo-700 dark:text-indigo-300 font-mono text-xs">
+                                                    {formatCurrency(it.totalPrice)}
+                                                </td>
+                                                <td className="p-2 text-center">
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => removeItem(it.id)} 
+                                                        className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors cursor-pointer"
+                                                        title="حذف این ردیف"
+                                                    >
+                                                        <Trash2 size={16}/>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <div className="p-6 text-center text-gray-400 text-xs">
+                                <p className="mb-2">ردیفی برای پیش‌فاکتور ثبت نشده است.</p>
+                                <button
+                                    type="button"
+                                    onClick={addItem}
+                                    className="px-4 py-1.5 bg-indigo-50 text-indigo-600 font-bold rounded-xl hover:bg-indigo-100 transition-colors"
+                                >
+                                    + افزودن ردیف اول
+                                </button>
+                            </div>
+                        )}
+
+                        <button 
+                            type="button"
+                            onClick={addItem} 
+                            className="w-full py-3 bg-gray-50 dark:bg-gray-800/60 text-indigo-600 dark:text-indigo-400 font-bold hover:bg-indigo-50 dark:hover:bg-indigo-950/40 border-t border-dashed border-gray-200 dark:border-gray-800 transition-colors flex items-center justify-center gap-1.5 cursor-pointer text-xs"
+                        >
+                            <Plus size={15} />
+                            <span>افزودن ردیف جدید</span>
+                        </button>
                     </div>
 
                     {/* Proforma File Attachment & Preview Section */}

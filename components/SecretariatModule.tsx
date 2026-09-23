@@ -260,6 +260,44 @@ import { generateUUID, getCurrentShamsiDate } from "../constants";
 import { shareElementToChat, openSendToChat } from "../services/chatShareService";
 
 
+class SafeEditorErrorBoundary extends React.Component<
+  { children: React.ReactNode; fallback?: React.ReactNode; onReset?: () => void },
+  { hasError: boolean; error: any }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: any, errorInfo: any) {
+    console.warn('Caught error in editor boundary:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        this.props.fallback || (
+          <div className="flex flex-col items-center justify-center p-6 text-center text-xs text-slate-300 gap-3 bg-slate-900/90 rounded-2xl border border-slate-700">
+            <p className="text-amber-400 font-bold">عدم امکان برقراری ارتباط پایدار با افزونه ویرایشگر اسناد</p>
+            <p className="text-slate-400 text-[11px]">می‌توانید به راحتی از ویرایشگر اداری داخلی (آفلاین) بدون نیاز به سرور جانبی استفاده کنید.</p>
+            {this.props.onReset && (
+              <button
+                type="button"
+                onClick={this.props.onReset}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-all shadow-md"
+              >
+                بازگشت به ویرایشگر اداری داخلی
+              </button>
+            )}
+          </div>
+        )
+      );
+    }
+    return this.props.children;
+  }
+}
+
 interface SafeOnlyOfficeEditorProps {
   id: string;
   documentServerUrl: string;
@@ -279,48 +317,71 @@ const SafeOnlyOfficeEditor: React.FC<SafeOnlyOfficeEditorProps> = ({
 }) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const editorInstanceRef = React.useRef<any>(null);
+  const holderIdRef = React.useRef<string>('');
 
   React.useEffect(() => {
     let isMounted = true;
     const cleanUrl = (documentServerUrl || '').trim().replace(/\/+$/, '');
     const scriptUrl = cleanUrl + '/web-apps/apps/api/documents/api.js';
+    const holderId = id + '_' + Math.random().toString(36).substring(2, 9);
+    holderIdRef.current = holderId;
 
-    const initEditor = () => {
-      if (!isMounted || !containerRef.current) return;
+    const cleanupEditor = () => {
       if (editorInstanceRef.current && typeof editorInstanceRef.current.destroyEditor === 'function') {
         try {
-          editorInstanceRef.current.destroyEditor();
+          // Provide a dummy holder if element was unmounted so DocsAPI doesn't crash on null.innerHTML
+          const existingEl = document.getElementById(holderId);
+          if (!existingEl) {
+            const dummy = document.createElement('div');
+            dummy.id = holderId;
+            dummy.style.display = 'none';
+            document.body.appendChild(dummy);
+            try {
+              editorInstanceRef.current.destroyEditor();
+            } finally {
+              if (dummy.parentNode) dummy.parentNode.removeChild(dummy);
+            }
+          } else {
+            editorInstanceRef.current.destroyEditor();
+          }
         } catch (e) {
-          console.warn('Error destroying editor:', e);
+          console.warn('Silent destroyEditor catch:', e);
         }
         editorInstanceRef.current = null;
       }
+    };
 
-      containerRef.current.innerHTML = '';
-      const holder = document.createElement('div');
-      holder.id = id + '_' + Date.now();
-      holder.style.width = '100%';
-      holder.style.height = '100%';
-      containerRef.current.appendChild(holder);
+    const initEditor = () => {
+      if (!isMounted || !containerRef.current) return;
+      cleanupEditor();
 
       try {
-        const DocsAPI = (window as any).DocsAPI;
-        if (DocsAPI && typeof DocsAPI.DocEditor === 'function') {
-          const fullConfig = {
-            ...config,
-            events: {
-              ...config.events,
-              onDocumentReady: () => {
-                if (isMounted) events_onDocumentReady?.();
+        if (containerRef.current) {
+          containerRef.current.innerHTML = '';
+          const holder = document.createElement('div');
+          holder.id = holderId;
+          holder.style.width = '100%';
+          holder.style.height = '100%';
+          containerRef.current.appendChild(holder);
+
+          const DocsAPI = (window as any).DocsAPI;
+          if (DocsAPI && typeof DocsAPI.DocEditor === 'function') {
+            const fullConfig = {
+              ...config,
+              events: {
+                ...config.events,
+                onDocumentReady: () => {
+                  if (isMounted) events_onDocumentReady?.();
+                },
+                onError: (err: any) => {
+                  if (isMounted) events_onError?.(err);
+                },
               },
-              onError: (err: any) => {
-                if (isMounted) events_onError?.(err);
-              },
-            },
-          };
-          editorInstanceRef.current = new DocsAPI.DocEditor(holder.id, fullConfig);
-        } else {
-          onLoadComponentError?.(-1, 'DocsAPI not initialized');
+            };
+            editorInstanceRef.current = new DocsAPI.DocEditor(holder.id, fullConfig);
+          } else {
+            onLoadComponentError?.(-1, 'DocsAPI not initialized');
+          }
         }
       } catch (err: any) {
         console.error('Failed to init DocsAPI.DocEditor:', err);
@@ -346,14 +407,11 @@ const SafeOnlyOfficeEditor: React.FC<SafeOnlyOfficeEditorProps> = ({
 
     return () => {
       isMounted = false;
-      if (editorInstanceRef.current && typeof editorInstanceRef.current.destroyEditor === 'function') {
-        try {
-          editorInstanceRef.current.destroyEditor();
-        } catch (e) {}
-        editorInstanceRef.current = null;
-      }
+      cleanupEditor();
       if (containerRef.current) {
-        containerRef.current.innerHTML = '';
+        try {
+          containerRef.current.innerHTML = '';
+        } catch (e) {}
       }
     };
   }, [id, documentServerUrl, config?.document?.key]);
@@ -427,6 +485,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
 
   // --- Modals & Forms ---
   const [showNewLetterModal, setShowNewLetterModal] = useState(false);
+  const [isMetadataExpanded, setIsMetadataExpanded] = useState(false);
+  const [isEditorFullscreen, setIsEditorFullscreen] = useState(false);
   const [editingLetterId, setEditingLetterId] = useState<string | null>(null);
   const [selectedLetterForView, setSelectedLetterForView] =
     useState<SecretariatLetter | null>(null);
@@ -3153,10 +3213,12 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                     </div>
                   </div>
                 ))}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
+        )}
 
-          {/* Template Edit / Create Modal */}
+                    {/* Template Edit / Create Modal */}
           <AnimatePresence>
             {editingTemplate && (
               <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
@@ -3168,1498 +3230,100 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                   dir="rtl"
                 >
                   <div className="flex items-center justify-between border-b dark:border-slate-800 pb-3">
-                    <h4 className="text-sm font-black text-gray-800 dark:text-white flex items-center gap-2">
-                      <LayoutTemplate size={18} className="text-purple-600" />
-                      {editingTemplate.id ? "ویرایش قالب نامه" : "ایجاد قالب نمونه نامه جدید"}
-                    </h4>
+                    <h3 className="text-base font-black text-gray-800 dark:text-white">
+                      {editingTemplate.id ? "ویرایش قالب آماده" : "ثبت قالب آماده جدید"}
+                    </h3>
                     <button
                       type="button"
                       onClick={() => setEditingTemplate(null)}
-                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                      className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg"
                     >
                       <X size={18} />
                     </button>
                   </div>
 
-                  <div className="space-y-3 flex-1 overflow-y-auto">
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        عنوان قالب <span className="text-red-500">*</span>
-                      </label>
+                  <form onSubmit={handleSaveTemplate} className="space-y-4 flex-1 flex flex-col min-h-0 overflow-y-auto">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 mb-1 block">عنوان قالب</label>
                       <input
+                        required
                         type="text"
                         value={editingTemplate.title || ""}
-                        onChange={(e) =>
-                          setEditingTemplate((prev) => ({
-                            ...prev,
-                            title: e.target.value,
-                          }))
-                        }
-                        placeholder="مثال: دعوت به جلسه هیئت مدیره، گواهی اشتغال به کار..."
-                        className="w-full bg-slate-50 dark:bg-slate-800 border dark:border-slate-700 text-xs rounded-xl p-2.5 outline-hidden focus:ring-2 focus:ring-purple-500"
+                        onChange={(e) => setEditingTemplate({ ...editingTemplate, title: e.target.value })}
+                        className="w-full border dark:border-slate-700 dark:bg-slate-800 rounded-xl px-3 py-2 text-sm"
+                        placeholder="مثال: درخواست مرخصی، اخطار کتبی، دعوتنامه"
                       />
                     </div>
-
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                          متن قالب نامه <span className="text-red-500">*</span>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => docxImportInputRef.current?.click()}
-                          className="text-[11px] text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1 font-bold"
-                        >
-                          <Upload size={12} />
-                          وارد کردن از فایل ورد (.docx)
-                        </button>
-                      </div>
-                      <div className="border dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
-                        <ReactQuill
-                          theme="snow"
-                          value={editingTemplate.content || ""}
-                          onChange={(content) =>
-                            setEditingTemplate((prev) => ({
-                              ...prev,
-                              content,
-                            }))
-                          }
-                          placeholder="متن قالب نامه را اینجا تایپ کنید یا از فایل ورد استخراج نمایید..."
-                          className="min-h-[180px]"
-                        />
-                      </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 mb-1 block">دسته‌بندی</label>
+                      <input
+                        type="text"
+                        value={editingTemplate.category || ""}
+                        onChange={(e) => setEditingTemplate({ ...editingTemplate, category: e.target.value })}
+                        className="w-full border dark:border-slate-700 dark:bg-slate-800 rounded-xl px-3 py-2 text-sm"
+                        placeholder="مثال: اداری، مالی، منابع انسانی"
+                      />
                     </div>
-                  </div>
-
-                  <div className="flex justify-end gap-2 pt-3 border-t dark:border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => setEditingTemplate(null)}
-                      className="px-4 py-2 text-xs font-bold rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                    >
-                      انصراف
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!editingTemplate.title?.trim()) {
-                          alert("لطفا عنوان قالب را وارد کنید.");
-                          return;
-                        }
-                        handleSaveTemplate({
-                          id: editingTemplate.id || generateUUID(),
-                          title: editingTemplate.title,
-                          subject: editingTemplate.title,
-                          content: editingTemplate.content || "",
-                          createdAt: editingTemplate.createdAt || Date.now(),
-                        });
-                      }}
-                      className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2 text-xs font-bold rounded-xl transition-all shadow-sm flex items-center gap-1.5"
-                    >
-                      <Save size={15} />
-                      ذخیره قالب
-                    </button>
-                  </div>
+                    <div className="flex-1 flex flex-col min-h-[160px]">
+                      <label className="text-xs font-bold text-slate-500 mb-1 block">متن پیش‌فرض قالب</label>
+                      <textarea
+                        value={editingTemplate.content || ""}
+                        onChange={(e) => setEditingTemplate({ ...editingTemplate, content: e.target.value })}
+                        className="w-full flex-1 border dark:border-slate-700 dark:bg-slate-800 rounded-xl p-3 text-sm resize-none"
+                        placeholder="متن نامه یا قالب مورد نظر..."
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2 pt-3 border-t dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setEditingTemplate(null)}
+                        className="px-4 py-2 rounded-xl border dark:border-slate-700 text-xs font-bold"
+                      >
+                        انصراف
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-md"
+                      >
+                        ذخیره قالب
+                      </button>
+                    </div>
+                  </form>
                 </motion.div>
               </div>
             )}
           </AnimatePresence>
-        </div>
-      )}
 
-      {/* C. SETTINGS & CALIBRATION VIEW */}
-      {activeTab === "settings" && isSuperUser && (
-        <div className="space-y-6 animate-fade-in" dir="rtl">
-          {/* Settings Sub-Tab Navigation Bar */}
-          <div className="bg-white dark:bg-slate-800 p-2 rounded-2xl border dark:border-slate-700 shadow-xs flex items-center gap-1.5 flex-wrap">
-            {[
-              { id: "permissions", label: "ماتریس دسترسی پرسنل", icon: Shield },
-              { id: "numbering", label: "شماره‌گذاری هوشمند خودکار", icon: Hash },
-              { id: "letterhead", label: "کالیبراسیون سربرگ و حاشیه‌ها", icon: Ruler },
-              { id: "stamp", label: "مهر رسمی شرکت و امضاها", icon: Stamp },
-              { id: "word", label: "قالب‌ها و سربرگ ورد", icon: LayoutTemplate },
-            ].map((st) => {
-              const IconComp = st.icon;
-              const isActive = settingsSubTab === st.id;
-              return (
-                <button
-                  key={st.id}
-                  onClick={() => setSettingsSubTab(st.id as any)}
-                  className={`flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl transition-all ${
-                    isActive
-                      ? "bg-purple-600 text-white shadow-sm"
-                      : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60"
-                  }`}
+          {/* 1. REGISTER NEW LETTER MODAL */}
+          <AnimatePresence>
+            {showNewLetterModal && (
+              <div className="fixed inset-0 z-50 flex flex-col bg-slate-900/80 p-0 sm:p-1 overflow-hidden">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.99 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.99 }}
+                  className="bg-slate-100 dark:bg-slate-900 w-full h-full rounded-none sm:rounded-xl border-0 sm:border border-slate-200 dark:border-slate-800 p-1.5 sm:p-2 flex flex-col overflow-hidden text-right shadow-2xl"
+                  dir="rtl"
                 >
-                  <IconComp size={15} /> {st.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <form onSubmit={handleSaveSettings} className="space-y-6">
-            {/* 1. PERMISSIONS MATRIX */}
-            {settingsSubTab === "permissions" && (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl border dark:border-slate-700 shadow-xs p-4 sm:p-6 space-y-4">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b dark:border-slate-700/80 pb-4">
-                  <div>
-                    <h3 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
-                      <Shield className="text-purple-600" size={18} />
-                      ماتریس تفکیک دسترسی پرسنل دبیرخانه ({selectedCompany?.name})
-                    </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      در این بخش مشخص کنید کدام پرسنل به بخش دفتر مرکزی یا کارخانه دسترسی داشته باشند و چه کسانی مجاز به ویرایش یا حذف نامه‌ها هستند.
-                    </p>
-                  </div>
-
-                  <div className="w-full sm:w-64 relative">
-                    <span className="absolute inset-y-0 right-3 flex items-center text-slate-400">
-                      <Search size={14} />
-                    </span>
-                    <input
-                      type="text"
-                      value={userSearchQuery}
-                      onChange={(e) => setUserSearchQuery(e.target.value)}
-                      placeholder="جستجوی نام پرسنل..."
-                      className="w-full pl-3 pr-8 py-1.5 text-xs bg-slate-50 dark:bg-slate-900 border dark:border-slate-700 rounded-lg focus:outline-hidden"
-                    />
-                  </div>
-                </div>
-
-                {/* Permissions Stats Ribbon */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-100 dark:border-purple-800 p-3 rounded-xl flex items-center justify-between">
-                    <div>
-                      <div className="text-[11px] font-bold text-purple-700 dark:text-purple-300">
-                        دسترسی دفتر مرکزی
-                      </div>
-                      <div className="text-lg font-black text-purple-900 dark:text-purple-100">
-                        {toPersianDigits(companySettingsForm.headquartersAccessTokens?.length || 0)} نفر
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const allIds = users.map((u) => u.id);
-                        const isAll = (companySettingsForm.headquartersAccessTokens || []).length === users.length;
-                        setCompanySettingsForm((prev) => ({
-                          ...prev,
-                          headquartersAccessTokens: isAll ? [] : allIds,
-                        }));
-                      }}
-                      className="text-[10px] font-bold text-purple-600 dark:text-purple-400 hover:underline"
-                    >
-                      {(companySettingsForm.headquartersAccessTokens || []).length === users.length ? "لغو همه" : "انتخاب همه"}
-                    </button>
-                  </div>
-
-                  <div className="bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-800 p-3 rounded-xl flex items-center justify-between">
-                    <div>
-                      <div className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
-                        دسترسی کارخانه
-                      </div>
-                      <div className="text-lg font-black text-indigo-900 dark:text-indigo-100">
-                        {toPersianDigits(companySettingsForm.factoryAccessTokens?.length || 0)} نفر
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const allIds = users.map((u) => u.id);
-                        const isAll = (companySettingsForm.factoryAccessTokens || []).length === users.length;
-                        setCompanySettingsForm((prev) => ({
-                          ...prev,
-                          factoryAccessTokens: isAll ? [] : allIds,
-                        }));
-                      }}
-                      className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
-                    >
-                      {(companySettingsForm.factoryAccessTokens || []).length === users.length ? "لغو همه" : "انتخاب همه"}
-                    </button>
-                  </div>
-
-                  <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-100 dark:border-amber-800 p-3 rounded-xl flex items-center justify-between">
-                    <div>
-                      <div className="text-[11px] font-bold text-amber-700 dark:text-amber-300">
-                        مجوز ویرایش نامه‌ها
-                      </div>
-                      <div className="text-lg font-black text-amber-900 dark:text-amber-100">
-                        {toPersianDigits(companySettingsForm.editAccessTokens?.length || 0)} نفر
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const allIds = users.map((u) => u.id);
-                        const isAll = (companySettingsForm.editAccessTokens || []).length === users.length;
-                        setCompanySettingsForm((prev) => ({
-                          ...prev,
-                          editAccessTokens: isAll ? [] : allIds,
-                        }));
-                      }}
-                      className="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:underline"
-                    >
-                      {(companySettingsForm.editAccessTokens || []).length === users.length ? "لغو همه" : "انتخاب همه"}
-                    </button>
-                  </div>
-
-                  <div className="bg-rose-50/60 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-800 p-3 rounded-xl flex items-center justify-between">
-                    <div>
-                      <div className="text-[11px] font-bold text-rose-700 dark:text-rose-300">
-                        مجوز حذف نامه‌ها
-                      </div>
-                      <div className="text-lg font-black text-rose-900 dark:text-rose-100">
-                        {toPersianDigits(companySettingsForm.deleteAccessTokens?.length || 0)} نفر
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const allIds = users.map((u) => u.id);
-                        const isAll = (companySettingsForm.deleteAccessTokens || []).length === users.length;
-                        setCompanySettingsForm((prev) => ({
-                          ...prev,
-                          deleteAccessTokens: isAll ? [] : allIds,
-                        }));
-                      }}
-                      className="text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:underline"
-                    >
-                      {(companySettingsForm.deleteAccessTokens || []).length === users.length ? "لغو همه" : "انتخاب همه"}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Personnel Table */}
-                <div className="border dark:border-slate-700 rounded-xl overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-right text-xs">
-                      <thead className="bg-slate-50 dark:bg-slate-900/80 border-b dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold">
-                        <tr>
-                          <th className="p-3 w-1/3">نام و سمت کاربر</th>
-                          <th className="p-3 text-center">دسترسی دفتر مرکزی</th>
-                          <th className="p-3 text-center">دسترسی کارخانه</th>
-                          <th className="p-3 text-center">مجوز ویرایش</th>
-                          <th className="p-3 text-center">مجوز حذف</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y dark:divide-slate-700">
-                        {users
-                          .filter(
-                            (u) =>
-                              !userSearchQuery ||
-                              u.fullName.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
-                              u.username.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
-                              u.role?.toLowerCase().includes(userSearchQuery.toLowerCase()),
-                          )
-                          .map((u) => {
-                            const hasHQ = companySettingsForm.headquartersAccessTokens?.includes(u.id);
-                            const hasFC = companySettingsForm.factoryAccessTokens?.includes(u.id);
-                            const hasEdit = companySettingsForm.editAccessTokens?.includes(u.id);
-                            const hasDel = companySettingsForm.deleteAccessTokens?.includes(u.id);
-
-                            return (
-                              <tr
-                                key={u.id}
-                                className="hover:bg-slate-50/80 dark:hover:bg-slate-700/40 transition-colors"
-                              >
-                                <td className="p-3">
-                                  <div className="flex items-center gap-2.5">
-                                    <div className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center font-bold text-[11px] text-slate-700 dark:text-slate-200 shrink-0">
-                                      {u.fullName.charAt(0)}
-                                    </div>
-                                    <div>
-                                      <div className="font-bold text-slate-800 dark:text-white">
-                                        {u.fullName}
-                                      </div>
-                                      <div className="text-[10px] text-slate-400">
-                                        {u.username} • {u.role || "کاربر"}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </td>
-
-                                {/* HQ Checkbox */}
-                                <td className="p-3 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const current = companySettingsForm.headquartersAccessTokens || [];
-                                      const next = hasHQ
-                                        ? current.filter((id) => id !== u.id)
-                                        : [...current, u.id];
-                                      setCompanySettingsForm((prev) => ({
-                                        ...prev,
-                                        headquartersAccessTokens: next,
-                                      }));
-                                    }}
-                                    className={`w-7 h-7 rounded-lg inline-flex items-center justify-center transition-all ${
-                                      hasHQ
-                                        ? "bg-purple-600 text-white shadow-xs"
-                                        : "bg-slate-100 dark:bg-slate-700 text-transparent border dark:border-slate-600 hover:bg-slate-200"
-                                    }`}
-                                  >
-                                    <Check size={14} strokeWidth={3} />
-                                  </button>
-                                </td>
-
-                                {/* FC Checkbox */}
-                                <td className="p-3 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const current = companySettingsForm.factoryAccessTokens || [];
-                                      const next = hasFC
-                                        ? current.filter((id) => id !== u.id)
-                                        : [...current, u.id];
-                                      setCompanySettingsForm((prev) => ({
-                                        ...prev,
-                                        factoryAccessTokens: next,
-                                      }));
-                                    }}
-                                    className={`w-7 h-7 rounded-lg inline-flex items-center justify-center transition-all ${
-                                      hasFC
-                                        ? "bg-indigo-600 text-white shadow-xs"
-                                        : "bg-slate-100 dark:bg-slate-700 text-transparent border dark:border-slate-600 hover:bg-slate-200"
-                                    }`}
-                                  >
-                                    <Check size={14} strokeWidth={3} />
-                                  </button>
-                                </td>
-
-                                {/* Edit Checkbox */}
-                                <td className="p-3 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const current = companySettingsForm.editAccessTokens || [];
-                                      const next = hasEdit
-                                        ? current.filter((id) => id !== u.id)
-                                        : [...current, u.id];
-                                      setCompanySettingsForm((prev) => ({
-                                        ...prev,
-                                        editAccessTokens: next,
-                                      }));
-                                    }}
-                                    className={`w-7 h-7 rounded-lg inline-flex items-center justify-center transition-all ${
-                                      hasEdit
-                                        ? "bg-amber-500 text-white shadow-xs"
-                                        : "bg-slate-100 dark:bg-slate-700 text-transparent border dark:border-slate-600 hover:bg-slate-200"
-                                    }`}
-                                  >
-                                    <Check size={14} strokeWidth={3} />
-                                  </button>
-                                </td>
-
-                                {/* Delete Checkbox */}
-                                <td className="p-3 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const current = companySettingsForm.deleteAccessTokens || [];
-                                      const next = hasDel
-                                        ? current.filter((id) => id !== u.id)
-                                        : [...current, u.id];
-                                      setCompanySettingsForm((prev) => ({
-                                        ...prev,
-                                        deleteAccessTokens: next,
-                                      }));
-                                    }}
-                                    className={`w-7 h-7 rounded-lg inline-flex items-center justify-center transition-all ${
-                                      hasDel
-                                        ? "bg-rose-600 text-white shadow-xs"
-                                        : "bg-slate-100 dark:bg-slate-700 text-transparent border dark:border-slate-600 hover:bg-slate-200"
-                                    }`}
-                                  >
-                                    <Check size={14} strokeWidth={3} />
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* 2. AUTOMATED NUMBERING ENGINE */}
-            {settingsSubTab === "numbering" && (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl border dark:border-slate-700 shadow-xs p-4 sm:p-6 space-y-6">
-                <div className="flex items-center justify-between border-b dark:border-slate-700/80 pb-4">
-                  <div>
-                    <h3 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
-                      <Hash className="text-purple-600" size={18} />
-                      سیستم شماره‌گذاری هوشمند خودکار نامه‌ها
-                    </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      فرمت و ساختار شماره‌گذاری نامه‌ها بر اساس بخش، سال شمسی و شمارنده متوالی تعریف می‌شود.
-                    </p>
-                  </div>
-
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={companySettingsForm.autoNumberingEnabled ?? true}
-                      onChange={(e) =>
-                        setCompanySettingsForm((prev) => ({
-                          ...prev,
-                          autoNumberingEnabled: e.target.checked,
-                        }))
-                      }
-                      className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4"
-                    />
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                      فعال‌سازی شماره‌گذاری خودکار
-                    </span>
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Settings Inputs */}
-                  <div className="space-y-4">
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        پیشوند دفتر مرکزی (Headquarters Prefix)
-                      </label>
-                      <input
-                        type="text"
-                        value={companySettingsForm.numberingPrefixHeadquarters || ""}
-                        onChange={(e) =>
-                          setCompanySettingsForm((prev) => ({
-                            ...prev,
-                            numberingPrefixHeadquarters: e.target.value,
-                          }))
-                        }
-                        placeholder="مثال: HQ یا د-م"
-                        className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-xl px-3 py-2 text-xs"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        پیشوند کارخانه (Factory Prefix)
-                      </label>
-                      <input
-                        type="text"
-                        value={companySettingsForm.numberingPrefixFactory || ""}
-                        onChange={(e) =>
-                          setCompanySettingsForm((prev) => ({
-                            ...prev,
-                            numberingPrefixFactory: e.target.value,
-                          }))
-                        }
-                        placeholder="مثال: FC یا ک-ت"
-                        className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-xl px-3 py-2 text-xs"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        الگوی ساختار شماره نامه (Numbering Pattern)
-                      </label>
-                      <input
-                        type="text"
-                        value={companySettingsForm.numberingFormat || ""}
-                        onChange={(e) =>
-                          setCompanySettingsForm((prev) => ({
-                            ...prev,
-                            numberingFormat: e.target.value,
-                          }))
-                        }
-                        placeholder="{PREFIX}-{YEAR}/{NUM}"
-                        className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-xl px-3 py-2 text-xs font-mono"
-                      />
-                      <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                        <span className="text-[10px] text-slate-400">تگ‌های سریع:</span>
-                        {["{PREFIX}", "{YEAR}", "{NUM}", "{SECTION}", "{COMPANY_CODE}"].map((tag) => (
-                          <button
-                            key={tag}
-                            type="button"
-                            onClick={() => {
-                              const cur = companySettingsForm.numberingFormat || "";
-                              setCompanySettingsForm((prev) => ({
-                                ...prev,
-                                numberingFormat: cur + tag,
-                              }));
-                            }}
-                            className="text-[10px] font-mono bg-slate-100 dark:bg-slate-700 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded border dark:border-slate-600 hover:bg-purple-50"
-                          >
-                            {tag}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                          شمارنده شروع
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={companySettingsForm.numberingStartCounter ?? 1}
-                          onChange={(e) =>
-                            setCompanySettingsForm((prev) => ({
-                              ...prev,
-                              numberingStartCounter: parseInt(e.target.value) || 1,
-                            }))
-                          }
-                          className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-xl px-3 py-2 text-xs font-mono text-center"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                          طول رقم (صفر پرکننده)
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          max="8"
-                          value={companySettingsForm.numberingPadLength ?? 4}
-                          onChange={(e) =>
-                            setCompanySettingsForm((prev) => ({
-                              ...prev,
-                              numberingPadLength: parseInt(e.target.value) || 4,
-                            }))
-                          }
-                          className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-xl px-3 py-2 text-xs font-mono text-center"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Live Numbering Preview Box */}
-                  <div className="bg-slate-50 dark:bg-slate-900/80 border dark:border-slate-700 rounded-2xl p-5 flex flex-col justify-between space-y-4">
-                    <div className="space-y-3">
-                      <h4 className="text-xs font-black text-slate-800 dark:text-white flex items-center gap-1.5">
-                        <Sparkles size={15} className="text-amber-500" />
-                        پیش‌نمایش زنده شماره‌گذاری خودکار
-                      </h4>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                        نمونه شماره‌های تولید شده با توجه به تنظیمات انتخابی شما به شرح زیر خواهند بود:
-                      </p>
-
-                      <div className="space-y-2.5 pt-2">
-                        <div className="p-3 bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-xl flex items-center justify-between">
-                          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                            نامه دفتر مرکزی (HQ):
-                          </span>
-                          <span className="font-mono text-xs font-black text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/60 px-2.5 py-1 rounded-lg border border-purple-100 dark:border-purple-800">
-                            {getNextLetterNumber(selectedCompany, "headquarters", companySettingsForm)}
-                          </span>
-                        </div>
-
-                        <div className="p-3 bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-xl flex items-center justify-between">
-                          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                            نامه کارخانه (Factory):
-                          </span>
-                          <span className="font-mono text-xs font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-1 rounded-lg border border-indigo-100 dark:border-indigo-800">
-                            {getNextLetterNumber(selectedCompany, "factory", companySettingsForm)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="text-[11px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800 flex items-center gap-1.5 font-bold">
-                      <CheckCircle size={14} /> شماره‌گذاری متوالی و یکتا به ازای هر شرکت تضمین می‌گردد.
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* 3. LETTERHEAD CALIBRATION & MARGIN VISUALIZER */}
-            {settingsSubTab === "letterhead" && (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl border dark:border-slate-700 shadow-xs p-4 sm:p-6 space-y-6">
-                <div className="border-b dark:border-slate-700/80 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
-                      <Ruler className="text-purple-600" size={18} />
-                      کالیبراسیون میلی‌متری سربرگ و فواصل چاپ و PDF
-                    </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      حاشیه‌های متن و موقعیت دقیق شماره/تاریخ را با پیش‌نمایش بلادرنگ تنظیم کنید تا در چاپ و خروجی PDF بدون کمترین خطا بنشیند.
-                    </p>
-                  </div>
-
-                  {/* Letterhead Upload Actions */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      type="file"
-                      ref={pdfLetterheadInputRef}
-                      onChange={handlePdfLetterheadUpload}
-                      accept=".pdf,application/pdf"
-                      className="hidden"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => pdfLetterheadInputRef.current?.click()}
-                      disabled={uploadingPdfLetterhead}
-                      className="bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-bold px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
-                      title="آپلود فایل PDF سربرگ رسمی با کیفیت برداری نامحدود و تفکیک‌پذیری ۳۰۰ DPI"
-                    >
-                      {uploadingPdfLetterhead ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <FileText size={14} />
-                      )}
-                      آپلود سربرگ برداری PDF (کیفیت ۳۰۰ DPI)
-                    </button>
-
-                    {companySettingsForm.pdfLetterheadUrl && (
-                      <div className="flex items-center gap-1.5 bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-200 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-rose-200 dark:border-rose-800">
-                        <CheckCircle size={13} className="text-rose-600" />
-                        <span>سربرگ PDF فعال</span>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            if (!selectedCompany) return;
-                            const updatedForm = {
-                              ...companySettingsForm,
-                              companyId: selectedCompany.id,
-                              pdfLetterheadUrl: "",
-                            };
-                            setCompanySettingsForm(updatedForm);
-                            try {
-                              const updated = await saveSecretariatSettings(updatedForm);
-                              setSecSettings(updated);
-                              alert("سربرگ PDF حذف شد.");
-                            } catch (err) {
-                              console.error(err);
-                            }
-                          }}
-                          className="text-rose-500 hover:text-rose-700 p-0.5 ml-1"
-                          title="حذف سربرگ PDF"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    )}
-
-                    <input
-                      type="file"
-                      ref={letterheadInputRef}
-                      onChange={handleLetterheadUpload}
-                      accept="image/*"
-                      className="hidden"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => letterheadInputRef.current?.click()}
-                      disabled={uploadingLetterhead}
-                      className="bg-purple-50 dark:bg-purple-950/50 hover:bg-purple-100 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-xs font-bold px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
-                    >
-                      {uploadingLetterhead ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Upload size={14} />
-                      )}
-                      آپلود تصویر سربرگ (PNG/JPG)
-                    </button>
-
-                    {companySettingsForm.letterheadUrl && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!selectedCompany) return;
-                          const updatedForm = {
-                            ...companySettingsForm,
-                            companyId: selectedCompany.id,
-                            letterheadUrl: "",
-                          };
-                          setCompanySettingsForm(updatedForm);
-                          try {
-                            const updated = await saveSecretariatSettings(updatedForm);
-                            setSecSettings(updated);
-                            alert("تصویر سربرگ حذف شد.");
-                          } catch (err) {
-                            console.error(err);
-                          }
-                        }}
-                        className="text-red-500 hover:text-red-700 text-xs font-bold p-2 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl"
-                        title="حذف تصویر سربرگ"
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                  {/* Left Column: Interactive Live Preview Sheet (5 Cols) */}
-                  <div className="lg:col-span-5 bg-slate-100 dark:bg-slate-900/90 p-4 rounded-2xl border dark:border-slate-700 flex flex-col items-center justify-center space-y-3">
-                    <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
-                      <Eye size={13} /> شبیه‌ساز برگه چاپ A4 (مقیاس زنده)
-                    </div>
-
-                    {/* Miniature A4 Sheet (210 x 297 ratio) */}
-                    <div
-                      className="w-[260px] h-[368px] bg-white border border-slate-300 shadow-md relative overflow-hidden rounded text-right select-none cursor-crosshair"
-                      style={{
-                        fontFamily: companySettingsForm.letterheadFontFamily || "sans-serif",
-                      }}
-                      onClick={(e) => {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const clickX = e.clientX - rect.left;
-                        const clickY = e.clientY - rect.top;
-                        const mmX = Math.round((clickX / rect.width) * 210);
-                        const mmY = Math.round((clickY / rect.height) * 297);
-                        setCompanySettingsForm((prev) => ({
-                          ...prev,
-                          metadataLeft: Math.max(0, Math.min(190, mmX)),
-                          metadataTop: Math.max(0, Math.min(270, mmY)),
-                        }));
-                      }}
-                      title="برای انتقال مشخصات، روی هر نقطه از سربرگ کلیک کنید"
-                    >
-                      {/* Letterhead Background if uploaded */}
-                      {getEffectiveLetterheadDisplayUrl(companySettingsForm) ? (
-                        <img
-                          src={getEffectiveLetterheadDisplayUrl(companySettingsForm)}
-                          className="absolute inset-0 w-full h-full object-fill pointer-events-none"
-                        />
-                      ) : (
-                        /* Default Minimal Corporate Header simulation */
-                        <div className="p-3 border-b border-slate-200 flex justify-between items-center text-[8px] text-slate-600 font-bold">
-                          <span>{selectedCompany.name}</span>
-                          <span className="text-[7px]">دبیرخانه مرکزی</span>
-                        </div>
-                      )}
-
-                      {/* Metadata Box Guide */}
-                      <div
-                        className="absolute border border-blue-400 bg-blue-50/70 p-1 rounded z-20 pointer-events-none transition-all"
-                        style={{
-                          top: `${((companySettingsForm.metadataTop ?? 25) / 297) * 100}%`,
-                          left: `${((companySettingsForm.metadataLeft ?? 20) / 210) * 100}%`,
-                          fontSize: `${Math.max(6, (companySettingsForm.metadataFontSize ?? 11) * 0.55)}px`,
-                          color: companySettingsForm.metadataColor || "#0f172a",
-                          fontWeight: companySettingsForm.metadataFontWeight || "bold",
-                          opacity: (companySettingsForm.metadataOpacity ?? 100) / 100,
-                          lineHeight: "1.2",
-                          transform: "translate(0, 0)",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        <div>شماره: ۱۴۰۴/۰۱</div>
-                        <div>تاریخ: ۱۴۰۴/۰۴/۰۶</div>
-                        <div>پیوست: ندارد</div>
-                      </div>
-
-                      {/* Body Content Simulation Area */}
-                      <div
-                        className="absolute border border-dashed border-red-300 bg-red-50/10 flex flex-col justify-between overflow-hidden"
-                        style={{
-                          top: `${((companySettingsForm.marginTop ?? 40) / 297) * 100}%`,
-                          bottom: `${((companySettingsForm.marginBottom ?? 25) / 297) * 100}%`,
-                          left: `${((companySettingsForm.marginLeft ?? 20) / 210) * 100}%`,
-                          right: `${((companySettingsForm.marginRight ?? 20) / 210) * 100}%`,
-                        }}
-                      >
-                        <div className="p-1 space-y-1 text-[7px] text-slate-600 leading-tight">
-                          <div className="font-bold">موضوع: نامه اداری</div>
-                          <div>با سلام و احترام،</div>
-                          <div className="text-justify text-slate-400 text-[6px]">
-                            متن نامه اداری دقیقا در این محدوده با رعایت حاشیه‌های سربرگ نمایش داده خواهد شد...
-                          </div>
-                        </div>
-
-                        {/* Stamp simulation */}
-                        {companySettingsForm.companyStampUrl && (
-                          <div
-                            className={`p-1 flex ${
-                              companySettingsForm.companyStampPosition === "bottom_left"
-                                ? "justify-start"
-                                : companySettingsForm.companyStampPosition === "bottom_center"
-                                  ? "justify-center"
-                                  : "justify-end"
-                            }`}
-                          >
-                            <img
-                              src={companySettingsForm.companyStampUrl}
-                              className="w-8 h-8 object-contain mix-blend-multiply"
-                              style={{
-                                opacity: (companySettingsForm.companyStampOpacity ?? 75) / 100,
-                              }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="text-[10px] text-slate-400 text-center">
-                      مستطیل قرمز = محدوده متن | کادر آبی = مشخصات نامه
-                    </div>
-                  </div>
-
-                  {/* Right Column: Calibration Controls (7 Cols) */}
-                  <div className="lg:col-span-7 space-y-5">
-                    {/* 1. Page Margins */}
-                    <div className="space-y-3 bg-slate-50 dark:bg-slate-900/60 p-4 rounded-xl border dark:border-slate-700">
-                      <h4 className="text-xs font-black text-slate-800 dark:text-white">
-                        حاشیه‌های متن نامه از لبه‌های برگه (میلی‌متر)
-                      </h4>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                            <span>حاشیه بالا (فاصله از سربرگ):</span>
-                            <span className="font-mono text-purple-600 font-black">
-                              {companySettingsForm.marginTop ?? 40} mm
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min="10"
-                            max="120"
-                            value={companySettingsForm.marginTop ?? 40}
-                            onChange={(e) =>
-                              setCompanySettingsForm((prev) => ({
-                                ...prev,
-                                marginTop: parseInt(e.target.value),
-                              }))
-                            }
-                            className="w-full accent-purple-600"
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                            <span>حاشیه پایین صفحه:</span>
-                            <span className="font-mono text-purple-600 font-black">
-                              {companySettingsForm.marginBottom ?? 25} mm
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min="10"
-                            max="70"
-                            value={companySettingsForm.marginBottom ?? 25}
-                            onChange={(e) =>
-                              setCompanySettingsForm((prev) => ({
-                                ...prev,
-                                marginBottom: parseInt(e.target.value),
-                              }))
-                            }
-                            className="w-full accent-purple-600"
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                            <span>حاشیه راست متن:</span>
-                            <span className="font-mono text-purple-600 font-black">
-                              {companySettingsForm.marginRight ?? 20} mm
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min="10"
-                            max="50"
-                            value={companySettingsForm.marginRight ?? 20}
-                            onChange={(e) =>
-                              setCompanySettingsForm((prev) => ({
-                                ...prev,
-                                marginRight: parseInt(e.target.value),
-                              }))
-                            }
-                            className="w-full accent-purple-600"
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                            <span>حاشیه چپ متن:</span>
-                            <span className="font-mono text-purple-600 font-black">
-                              {companySettingsForm.marginLeft ?? 20} mm
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min="10"
-                            max="50"
-                            value={companySettingsForm.marginLeft ?? 20}
-                            onChange={(e) =>
-                              setCompanySettingsForm((prev) => ({
-                                ...prev,
-                                marginLeft: parseInt(e.target.value),
-                              }))
-                            }
-                            className="w-full accent-purple-600"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 2. Metadata Block Coordinates & Typography */}
-                    <div className="space-y-3 bg-slate-50 dark:bg-slate-900/60 p-4 rounded-xl border dark:border-slate-700">
-                      <h4 className="text-xs font-black text-slate-800 dark:text-white">
-                        موقعیت و قلم مشخصات سربرگ (شماره، تاریخ، پیوست)
-                      </h4>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                            <span>فاصله از بالای سربرگ:</span>
-                            <span className="font-mono text-blue-600 font-black">
-                              {companySettingsForm.metadataTop ?? 25} mm
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0"
-                            max="200"
-                            value={companySettingsForm.metadataTop ?? 25}
-                            onChange={(e) =>
-                              setCompanySettingsForm((prev) => ({
-                                ...prev,
-                                metadataTop: parseInt(e.target.value),
-                              }))
-                            }
-                            className="w-full accent-blue-600"
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                            <span>فاصله از چپ سربرگ:</span>
-                            <span className="font-mono text-blue-600 font-black">
-                              {companySettingsForm.metadataLeft ?? 20} mm
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0"
-                            max="190"
-                            value={companySettingsForm.metadataLeft ?? 20}
-                            onChange={(e) =>
-                              setCompanySettingsForm((prev) => ({
-                                ...prev,
-                                metadataLeft: parseInt(e.target.value),
-                              }))
-                            }
-                            className="w-full accent-blue-600"
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                            <span>اندازه فونت مشخصات:</span>
-                            <span className="font-mono text-blue-600 font-black">
-                              {companySettingsForm.metadataFontSize ?? 11} px
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min="8"
-                            max="18"
-                            value={companySettingsForm.metadataFontSize ?? 11}
-                            onChange={(e) =>
-                              setCompanySettingsForm((prev) => ({
-                                ...prev,
-                                metadataFontSize: parseInt(e.target.value),
-                              }))
-                            }
-                            className="w-full accent-blue-600"
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                            رنگ فونت مشخصات
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="color"
-                              value={companySettingsForm.metadataColor || "#0f172a"}
-                              onChange={(e) =>
-                                setCompanySettingsForm((prev) => ({
-                                  ...prev,
-                                  metadataColor: e.target.value,
-                                }))
-                              }
-                              className="w-8 h-8 rounded border dark:border-slate-700 cursor-pointer p-0.5"
-                            />
-                            <span className="text-xs font-mono">
-                              {companySettingsForm.metadataColor || "#0f172a"}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* 4. COMPANY STAMP & SIGNATURE CONFIGURATION */}
-            {settingsSubTab === "stamp" && (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl border dark:border-slate-700 shadow-xs p-4 sm:p-6 space-y-6">
-                <div className="border-b dark:border-slate-700/80 pb-4 flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
-                      <Stamp className="text-purple-600" size={18} />
-                      مدیریت مهرهای رسمی شرکت و عبارات پایانی
-                    </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      می‌توانید چندین مهر با نام‌های مختلف (مانند مهر رسمی، مهر مالی، مهر مدیرعامل و...) تعریف نموده و متن پیش‌فرض پایان نامه‌ها را مشخص کنید.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Default Sign-Off Text */}
-                <div className="p-4 bg-slate-50 dark:bg-slate-900/60 rounded-xl border dark:border-slate-700 space-y-3">
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                    <FileSignature size={15} className="text-purple-600" />
-                    متن پیش‌فرض پایان نامه‌ها (عبارت احترام‌آمیز)
-                  </label>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      type="text"
-                      value={companySettingsForm.defaultSignOffText || "با احترام"}
-                      onChange={(e) =>
-                        setCompanySettingsForm((prev) => ({
-                          ...prev,
-                          defaultSignOffText: e.target.value,
-                        }))
-                      }
-                      placeholder="مثال: با احترام"
-                      className="flex-1 min-w-[200px] border dark:border-slate-700 dark:bg-slate-800 rounded-xl px-3 py-2 text-xs font-bold"
-                    />
-                    <div className="flex flex-wrap items-center gap-1">
-                      {["با احترام", "با تشکر و احترام", "با سپاس فراوان", "با آرزوی توفیق الهی", "ارادتمند"].map((phrase) => (
-                        <button
-                          key={phrase}
-                          type="button"
-                          onClick={() =>
-                            setCompanySettingsForm((prev) => ({
-                              ...prev,
-                              defaultSignOffText: phrase,
-                            }))
-                          }
-                          className={`text-[11px] px-2.5 py-1.5 rounded-lg font-bold border transition-colors ${
-                            (companySettingsForm.defaultSignOffText || "با احترام") === phrase
-                              ? "bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800"
-                              : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100"
-                          }`}
-                        >
-                          {phrase}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Add New Stamp Section */}
-                <div className="p-4 bg-purple-50/60 dark:bg-purple-950/30 rounded-xl border border-purple-200 dark:border-purple-900/50 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
-                      <PlusCircle size={15} />
-                      افزودن مهر جدید به شرکت
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <input
-                      type="text"
-                      value={newStampName}
-                      onChange={(e) => setNewStampName(e.target.value)}
-                      placeholder="نام مهر (مثال: مهر امور مالی، مهر کارخانه، مهر مدیرعامل)"
-                      className="flex-1 min-w-[220px] border border-purple-200 dark:border-purple-800 dark:bg-slate-900 rounded-xl px-3 py-2 text-xs font-bold"
-                    />
-                    <input
-                      type="file"
-                      ref={newStampInputRef}
-                      accept="image/*"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file || !selectedCompany) return;
-                        setUploadingStamp(true);
-                        const reader = new FileReader();
-                        reader.onload = async (ev) => {
-                          const base64 = ev.target?.result as string;
-                          try {
-                            const res = await uploadFile(file.name, base64);
-                            const newStampItem: CompanyStampItem = {
-                              id: `stamp-${Date.now()}`,
-                              name: newStampName.trim() || "مهر رسمی شرکت",
-                              url: res.url,
-                              isDefault: (companySettingsForm.stamps?.length || 0) === 0,
-                              opacity: 75,
-                              width: 120,
-                            };
-                            const updatedStamps = [
-                              ...(companySettingsForm.stamps || []),
-                              newStampItem,
-                            ];
-                            const updatedForm: SecretariatCompanySettings = {
-                              ...companySettingsForm,
-                              companyId: selectedCompany.id,
-                              stamps: updatedStamps,
-                              companyStampUrl: updatedStamps[0]?.url || "",
-                            };
-                            setCompanySettingsForm(updatedForm);
-                            const updatedSettings = await saveSecretariatSettings(updatedForm);
-                            setSecSettings(updatedSettings);
-                            setNewStampName("مهر جدید");
-                            alert(`مهر "${newStampItem.name}" با موفقیت ذخیره شد.`);
-                          } catch (err) {
-                            console.error(err);
-                            alert("خطا در ذخیره مهر جدید");
-                          } finally {
-                            setUploadingStamp(false);
-                            if (e.target) e.target.value = "";
-                          }
-                        };
-                        reader.readAsDataURL(file);
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => newStampInputRef.current?.click()}
-                      disabled={uploadingStamp}
-                      className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-xs transition-all"
-                    >
-                      {uploadingStamp ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Upload size={14} />
-                      )}
-                      انتخاب فایل تصویر و ذخیره مهر
-                    </button>
-                  </div>
-                </div>
-
-                {/* List of Defined Stamps */}
-                <div className="space-y-4">
-                  <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    مهرهای ثبت شده برای این شرکت ({companySettingsForm.stamps?.length || (companySettingsForm.companyStampUrl ? 1 : 0)})
-                  </h4>
-
-                  {(() => {
-                    const currentStamps = getNormalizedStamps(companySettingsForm);
-                    if (currentStamps.length === 0) {
-                      return (
-                        <div className="p-8 text-center text-xs text-slate-400 border border-dashed rounded-2xl bg-slate-50 dark:bg-slate-900/40">
-                          هنوز هیچ مهری برای این شرکت تعریف نشده است. با استفاده از بخش بالا اولین مهر شرکت را اضافه کنید.
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {currentStamps.map((stamp, idx) => (
-                          <div
-                            key={stamp.id || idx}
-                            className={`p-4 rounded-2xl border transition-all ${
-                              stamp.isDefault
-                                ? "border-purple-300 dark:border-purple-800 bg-purple-50/20 dark:bg-purple-950/20"
-                                : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                            } space-y-4`}
-                          >
-                            <div className="flex items-center justify-between gap-2 border-b dark:border-slate-800 pb-2">
-                              <div className="flex items-center gap-2 flex-1">
-                                <Stamp size={15} className="text-purple-600 shrink-0" />
-                                <input
-                                  type="text"
-                                  value={stamp.name}
-                                  onChange={(e) => {
-                                    const updated = [...currentStamps];
-                                    updated[idx] = { ...updated[idx], name: e.target.value };
-                                    setCompanySettingsForm((prev) => ({
-                                      ...prev,
-                                      stamps: updated,
-                                    }));
-                                  }}
-                                  placeholder="نام مهر..."
-                                  className="w-full text-xs font-bold bg-transparent border-b border-dashed border-slate-300 dark:border-slate-700 pb-0.5 focus:border-purple-500 outline-none"
-                                />
-                              </div>
-                              {stamp.isDefault ? (
-                                <span className="text-[10px] bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300 px-2 py-0.5 rounded-full font-black flex items-center gap-1">
-                                  <Check size={10} /> پیش‌فرض
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const updated = currentStamps.map((s, i) => ({
-                                      ...s,
-                                      isDefault: i === idx,
-                                    }));
-                                    setCompanySettingsForm((prev) => ({
-                                      ...prev,
-                                      stamps: updated,
-                                      companyStampUrl: updated[idx].url,
-                                    }));
-                                  }}
-                                  className="text-[10px] text-slate-500 hover:text-purple-600 font-bold underline"
-                                >
-                                  تنظیم به عنوان پیش‌فرض
-                                </button>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-4">
-                              {/* Stamp Image Preview */}
-                              <div className="w-24 h-24 bg-slate-50 dark:bg-slate-800 border rounded-xl flex items-center justify-center p-2 shrink-0 relative overflow-hidden">
-                                {stamp.url ? (
-                                  <img
-                                    src={stamp.url}
-                                    alt={stamp.name}
-                                    className="max-h-full max-w-full object-contain mix-blend-multiply"
-                                    style={{
-                                      opacity: (stamp.opacity ?? 75) / 100,
-                                    }}
-                                  />
-                                ) : (
-                                  <span className="text-[10px] text-slate-400">بدون تصویر</span>
-                                )}
-                              </div>
-
-                              {/* Controls */}
-                              <div className="flex-1 space-y-2 text-xs">
-                                <div>
-                                  <div className="flex justify-between text-[11px] font-bold text-slate-600 dark:text-slate-400">
-                                    <span>اندازه:</span>
-                                    <span className="font-mono text-purple-600">{stamp.width ?? 120} px</span>
-                                  </div>
-                                  <input
-                                    type="range"
-                                    min="60"
-                                    max="200"
-                                    value={stamp.width ?? 120}
-                                    onChange={(e) => {
-                                      const updated = [...currentStamps];
-                                      updated[idx] = { ...updated[idx], width: parseInt(e.target.value) };
-                                      setCompanySettingsForm((prev) => ({
-                                        ...prev,
-                                        stamps: updated,
-                                      }));
-                                    }}
-                                    className="w-full accent-purple-600"
-                                  />
-                                </div>
-
-                                <div>
-                                  <div className="flex justify-between text-[11px] font-bold text-slate-600 dark:text-slate-400">
-                                    <span>شفافیت:</span>
-                                    <span className="font-mono text-purple-600">{stamp.opacity ?? 75}%</span>
-                                  </div>
-                                  <input
-                                    type="range"
-                                    min="20"
-                                    max="100"
-                                    value={stamp.opacity ?? 75}
-                                    onChange={(e) => {
-                                      const updated = [...currentStamps];
-                                      updated[idx] = { ...updated[idx], opacity: parseInt(e.target.value) };
-                                      setCompanySettingsForm((prev) => ({
-                                        ...prev,
-                                        stamps: updated,
-                                      }));
-                                    }}
-                                    className="w-full accent-purple-600"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center justify-between pt-2 border-t dark:border-slate-800">
-                              <span className="text-[10px] text-slate-400">
-                                شناسه: {stamp.id || `stamp-${idx}`}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (!window.confirm(`آیا از حذف مهر "${stamp.name}" اطمینان دارید؟`)) return;
-                                  const updated = currentStamps.filter((_, i) => i !== idx);
-                                  const updatedForm: SecretariatCompanySettings = {
-                                    ...companySettingsForm,
-                                    stamps: updated,
-                                    companyStampUrl: updated[0]?.url || "",
-                                  };
-                                  setCompanySettingsForm(updatedForm);
-                                  if (selectedCompany) {
-                                    const saved = await saveSecretariatSettings(updatedForm);
-                                    setSecSettings(saved);
-                                  }
-                                }}
-                                className="text-red-500 hover:text-red-700 text-xs font-bold flex items-center gap-1 hover:bg-red-50 dark:hover:bg-red-950/40 px-2 py-1 rounded-lg transition-colors"
-                              >
-                                <Trash2 size={13} />
-                                حذف این مهر
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
-            )}
-
-            {/* 5. WORD & TEMPLATES SETTINGS */}
-            {settingsSubTab === "word" && (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl border dark:border-slate-700 shadow-xs p-4 sm:p-6 space-y-6">
-                <div className="border-b dark:border-slate-700/80 pb-4">
-                  <h3 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
-                    <LayoutTemplate className="text-purple-600" size={18} />
-                    قالب‌ها، سربرگ فایل ورد و فونت پیش‌فرض
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    تنظیم سربرگ خروجی Word (.docx) و متن پیش‌فرض صورتجلسات اداری این شرکت.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        فونت پیش‌فرض متن نامه‌ها و چاپ
-                      </label>
-                      <select
-                        value={companySettingsForm.letterheadFontFamily || "Vazirmatn"}
-                        onChange={(e) =>
-                          setCompanySettingsForm((prev) => ({
-                            ...prev,
-                            letterheadFontFamily: e.target.value,
-                          }))
-                        }
-                        className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-xl px-3 py-2 text-xs"
-                      >
-                        <option value="Vazirmatn">وزیرمتن (Vazirmatn - استاندارد رسمی)</option>
-                        <option value="Shabnam">شبنم (Shabnam)</option>
-                        <option value="Sahel">ساحل (Sahel)</option>
-                        <option value="Gandom">گندم (Gandom)</option>
-                        <option value="Estedad">استعداد (Estedad)</option>
-                        <option value="Samim">صمیم (Samim)</option>
-                        <option value="Tanha">تنها (Tanha)</option>
-                        <option value="Tahoma">تاهوما (Tahoma)</option>
-                        <option value="Arial">آریال (Arial)</option>
-                      </select>
-                    </div>
-
-                    <div className="p-4 border dark:border-slate-700 rounded-xl space-y-3 bg-slate-50 dark:bg-slate-900/60">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        فایل سربرگ اختصاصی خروجی ورد (.docx)
-                      </label>
-                      <input
-                        type="file"
-                        ref={wordLetterheadInputRef}
-                        onChange={handleWordLetterheadUpload}
-                        accept=".docx"
-                        className="hidden"
-                      />
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => wordLetterheadInputRef.current?.click()}
-                          disabled={uploadingWordLetterhead}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-1.5"
-                        >
-                          {uploadingWordLetterhead ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : (
-                            <Upload size={14} />
-                          )}
-                          آپلود فایل سربرگ Word (.docx)
-                        </button>
-                        {companySettingsForm.wordLetterheadUrl && (
-                          <span className="text-[11px] text-emerald-600 font-bold flex items-center gap-1">
-                            <CheckCircle size={13} /> فایل فعال است
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <label className="flex items-center gap-2 cursor-pointer pt-2">
-                      <input
-                        type="checkbox"
-                        checked={companySettingsForm.hideAutoFooter || false}
-                        onChange={(e) =>
-                          setCompanySettingsForm((prev) => ({
-                            ...prev,
-                            hideAutoFooter: e.target.checked,
-                          }))
-                        }
-                        className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4"
-                      />
-                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                        عدم درج خودکار آدرس و شماره ثبت در پاورقی (هنگام استفاده از سربرگ کامل)
-                      </span>
-                    </label>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      قالب متن پیش‌فرض صورتجلسات این شرکت
-                    </label>
-                    <textarea
-                      rows={8}
-                      value={companySettingsForm.meetingMinutesTemplate || ""}
-                      onChange={(e) =>
-                        setCompanySettingsForm((prev) => ({
-                          ...prev,
-                          meetingMinutesTemplate: e.target.value,
-                        }))
-                      }
-                      placeholder="متن ساختار استاندارد صورتجلسات هیئت مدیره یا جلسات داخلی..."
-                      className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-xl p-3 text-xs leading-relaxed"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* STICKY SAVE BAR */}
-            <div className="sticky bottom-4 z-30 bg-slate-900/90 text-white p-3 sm:p-4 rounded-2xl shadow-xl backdrop-blur-md flex items-center justify-between gap-4 border border-slate-700">
-              <div className="flex items-center gap-2 text-xs">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span>تنظیمات برای <b>{selectedCompany?.name}</b> ذخیره خواهد شد.</span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="submit"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-sm flex items-center gap-1.5 transition-all"
-                >
-                  <Save size={16} /> ذخیره کلیه تنظیمات، دسترسی‌ها و کالیبراسیون
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* --- ALL MODALS --- */}
-
-      {/* 1. REGISTER NEW LETTER MODAL */}
-      <AnimatePresence>
-        {showNewLetterModal && (
-          <div className="fixed inset-0 z-50 flex flex-col bg-slate-900/70 p-0 sm:p-1.5 md:p-2 backdrop-blur-xs overflow-hidden">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.99 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.99 }}
-              className="bg-slate-100 dark:bg-slate-900 w-full h-full rounded-none sm:rounded-2xl border-0 sm:border border-slate-200 dark:border-slate-800 p-2.5 sm:p-3 flex flex-col overflow-hidden text-right shadow-2xl"
-              dir="rtl"
-            >
-              <div className="flex items-center justify-between border-b dark:border-slate-800 pb-2.5 shrink-0">
+                  <div className="flex items-center justify-between border-b dark:border-slate-800 pb-1.5 shrink-0">
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-purple-600"></span>
-                  <h3 className="text-sm sm:text-base font-black text-gray-800 dark:text-white">
+                  <h3 className="text-xs sm:text-sm font-black text-gray-800 dark:text-white">
                     {editingLetterId ? "ویرایش نامه اداری" : "ثبت و تدوین نامه اداری جدید"}
                   </h3>
                   <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300">
                     {selectedCompany?.name}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold border transition-all flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/50 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 shadow-2xs hover:bg-indigo-100"
+                    title={isMetadataExpanded ? "جمع کردن مشخصات (فضای بزرگتر برای تایپ)" : "نمایش فرم کامل مشخصات"}
+                  >
+                    {isMetadataExpanded ? <span>▲ جمع‌کردن مشخصات</span> : <span>▼ بزرگ‌نمایی فضای تایپ (فعال)</span>}
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -4675,14 +3339,14 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                       };
                       setIsPrintMode(fakeLetter);
                     }}
-                    className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 hover:bg-amber-100 text-amber-700 dark:text-amber-300 text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1"
+                    className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 hover:bg-amber-100 text-amber-700 dark:text-amber-300 text-xs font-bold px-2.5 py-1 rounded-lg transition-all flex items-center gap-1"
                   >
-                    <Eye size={13} /> مشاهده پیش‌نویس
+                    <Eye size={13} /> <span className="hidden sm:inline">مشاهده پیش‌نویس</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowNewLetterModal(false)}
-                    className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg transition-colors"
                   >
                     <X size={18} />
                   </button>
@@ -4691,14 +3355,12 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
 
               <form onSubmit={handleSaveLetter} className="flex-1 flex flex-col overflow-hidden gap-2 min-h-0 pt-2">
                 {/* Compact Metadata Ribbon */}
-                <div className="bg-white dark:bg-slate-800 border dark:border-slate-700/80 rounded-xl p-2.5 shadow-xs shrink-0 space-y-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-2 items-center">
-                    {/* Subject */}
-                    <div className="md:col-span-4 space-y-0.5">
-                      <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold flex items-center gap-1">
-                        <span>موضوع نامه</span>
-                        <span className="text-red-500">*</span>
-                      </label>
+                <div className="bg-white dark:bg-slate-800 border dark:border-slate-700/80 rounded-xl p-1.5 sm:p-2 shadow-xs shrink-0 transition-all">
+                {!isMetadataExpanded ? (
+                  /* Compact Single-Row Metadata Ribbon (Pulls writing area upwards) */
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
+                    <div className="flex-1 min-w-[200px] flex items-center gap-1.5">
+                      <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">موضوع:</span>
                       <input
                         required
                         type="text"
@@ -4709,168 +3371,235 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                             subject: e.target.value,
                           })
                         }
-                        placeholder="مثال: درخواست تأمین تجهیزات حفاظتی"
-                        className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 dark:text-slate-100"
+                        placeholder="موضوع نامه اداری..."
+                        className="flex-1 border dark:border-slate-700 dark:bg-slate-900 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 dark:text-slate-100"
                       />
                     </div>
-
-                    {/* Sender */}
-                    <div className="md:col-span-2 space-y-0.5">
-                      <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">فرستنده (از طرف)</label>
-                      <input
-                        required
-                        type="text"
-                        list="user-list"
-                        value={newLetterForm.sender}
-                        onChange={(e) =>
-                          setNewLetterForm({
-                            ...newLetterForm,
-                            sender: e.target.value,
-                          })
-                        }
-                        placeholder="مثال: مدیریت دفتر مرکزی"
-                        className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-lg px-2.5 py-1 text-xs"
-                      />
-                    </div>
-
-                    {/* Receiver */}
-                    <div className="md:col-span-2 space-y-0.5">
-                      <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">گیرنده (به سمت)</label>
-                      <input
-                        required
-                        type="text"
-                        list="user-list"
-                        value={newLetterForm.receiver}
-                        onChange={(e) =>
-                          setNewLetterForm({
-                            ...newLetterForm,
-                            receiver: e.target.value,
-                          })
-                        }
-                        placeholder="مثال: سرپرست کارخانه"
-                        className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-lg px-2.5 py-1 text-xs"
-                      />
-                    </div>
-
-                    {/* Type */}
-                    <div className="md:col-span-2 space-y-0.5">
-                      <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">نوع نامه</label>
-                      <select
-                        value={newLetterForm.type}
-                        onChange={(e) =>
-                          setNewLetterForm({
-                            ...newLetterForm,
-                            type: e.target.value as any,
-                          })
-                        }
-                        className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-lg px-2 py-1 text-xs bg-white dark:text-white"
-                      >
-                        <option value="internal">داخلی (بین‌بخشی)</option>
-                        <option value="incoming">وارده (سازمان بیرونی)</option>
-                        <option value="outgoing">صادره (سازمان بیرونی)</option>
-                      </select>
-                    </div>
-
-                    {/* Date */}
-                    <div className="md:col-span-2 space-y-0.5">
-                      <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">تاریخ نامه (شمسی)</label>
-                      <input
-                        required
-                        type="text"
-                        value={newLetterForm.date}
-                        onChange={(e) =>
-                          setNewLetterForm({
-                            ...newLetterForm,
-                            date: e.target.value,
-                          })
-                        }
-                        placeholder="۱۴۰۵/۰۴/۰۶"
-                        className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-lg px-2 py-1 text-xs font-mono text-center"
-                      />
-                    </div>
-
-                    <datalist id="user-list">
-                      {users.map((u) => (
-                        <option key={u.id} value={u.fullName} />
-                      ))}
-                    </datalist>
-                  </div>
-
-                  {/* Inline quick checkboxes and advanced settings trigger */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t dark:border-slate-700/60 text-xs">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <label className="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300 font-bold cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={newLetterForm.hideSubjectInLetter}
-                          onChange={(e) =>
-                            setNewLetterForm({
-                              ...newLetterForm,
-                              hideSubjectInLetter: e.target.checked,
-                            })
-                          }
-                          className="rounded text-purple-600 focus:ring-purple-500 w-3.5 h-3.5"
-                        />
-                        حذف موضوع از متن
-                      </label>
-                      <label className="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300 font-bold cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={newLetterForm.hideSalutationInLetter}
-                          onChange={(e) =>
-                            setNewLetterForm({
-                              ...newLetterForm,
-                              hideSalutationInLetter: e.target.checked,
-                            })
-                          }
-                          className="rounded text-purple-600 focus:ring-purple-500 w-3.5 h-3.5"
-                        />
-                        حذف عبارت «با سلام و احترام»
-                      </label>
-                      {companySettingsForm.companyStampUrl && (
-                        <label className="flex items-center gap-1.5 text-[11px] text-red-600 dark:text-red-400 font-bold cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={newLetterForm.addCompanyStamp}
-                            onChange={(e) =>
-                              setNewLetterForm({
-                                ...newLetterForm,
-                                addCompanyStamp: e.target.checked,
-                              })
-                            }
-                            className="rounded text-red-600 focus:ring-red-500 w-3.5 h-3.5"
-                          />
-                          درج مهر شرکت
-                        </label>
-                      )}
-                      <label className="flex items-center gap-1.5 text-[11px] text-purple-600 dark:text-purple-400 font-bold cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={newLetterForm.isPrivate}
-                          onChange={(e) =>
-                            setNewLetterForm({
-                              ...newLetterForm,
-                              isPrivate: e.target.checked,
-                            })
-                          }
-                          className="rounded text-purple-600 focus:ring-purple-500 w-3.5 h-3.5"
-                        />
-                        نامه محرمانه
-                      </label>
-                    </div>
-
                     <div className="flex items-center gap-2">
+                      <div className="hidden md:flex items-center gap-1">
+                        <span className="text-[11px] text-slate-500 font-bold">فرستنده:</span>
+                        <input
+                          type="text"
+                          value={newLetterForm.sender}
+                          onChange={(e) => setNewLetterForm({ ...newLetterForm, sender: e.target.value })}
+                          placeholder="فرستنده..."
+                          className="w-28 sm:w-36 border dark:border-slate-700 dark:bg-slate-900 rounded-lg px-2 py-0.5 text-xs"
+                        />
+                      </div>
+                      <div className="hidden md:flex items-center gap-1">
+                        <span className="text-[11px] text-slate-500 font-bold">گیرنده:</span>
+                        <input
+                          type="text"
+                          value={newLetterForm.receiver}
+                          onChange={(e) => setNewLetterForm({ ...newLetterForm, receiver: e.target.value })}
+                          placeholder="گیرنده..."
+                          className="w-28 sm:w-36 border dark:border-slate-700 dark:bg-slate-900 rounded-lg px-2 py-0.5 text-xs"
+                        />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[11px] text-slate-500 font-bold">تاریخ:</span>
+                        <input
+                          type="text"
+                          value={newLetterForm.date}
+                          onChange={(e) => setNewLetterForm({ ...newLetterForm, date: e.target.value })}
+                          className="w-24 border dark:border-slate-700 dark:bg-slate-900 rounded-lg px-1.5 py-0.5 text-xs text-center font-mono"
+                        />
+                      </div>
                       <button
                         type="button"
                         onClick={() => setShowAdvancedOptionsModal(true)}
-                        className="flex items-center gap-1 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all"
+                        className="px-2 py-1 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 text-[11px] font-bold flex items-center gap-1"
+                        title="تنظیمات تکمیلی، امضاها، مهر و ضمائم"
                       >
-                        <Sliders size={13} />
-                        تنظیمات تکمیلی، امضاها و ضمائم ({newLetterForm.attachments?.length || 0} پیوست)
+                        <Sliders size={12} />
+                        <span>امضا و ضمائم ({newLetterForm.attachments?.length || 0})</span>
                       </button>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  /* Expanded Full Metadata Form */
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-2 items-center">
+                      {/* Subject */}
+                      <div className="md:col-span-4 space-y-0.5">
+                        <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold flex items-center gap-1">
+                          <span>موضوع نامه</span>
+                          <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          required
+                          type="text"
+                          value={newLetterForm.subject}
+                          onChange={(e) =>
+                            setNewLetterForm({
+                              ...newLetterForm,
+                              subject: e.target.value,
+                            })
+                          }
+                          placeholder="مثال: درخواست تأمین تجهیزات حفاظتی"
+                          className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+
+                      {/* Sender */}
+                      <div className="md:col-span-2 space-y-0.5">
+                        <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">فرستنده (از طرف)</label>
+                        <input
+                          required
+                          type="text"
+                          list="user-list"
+                          value={newLetterForm.sender}
+                          onChange={(e) =>
+                            setNewLetterForm({
+                              ...newLetterForm,
+                              sender: e.target.value,
+                            })
+                          }
+                          placeholder="مثال: مدیریت دفتر مرکزی"
+                          className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-lg px-2.5 py-1 text-xs"
+                        />
+                      </div>
+
+                      {/* Receiver */}
+                      <div className="md:col-span-2 space-y-0.5">
+                        <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">گیرنده (به سمت)</label>
+                        <input
+                          required
+                          type="text"
+                          list="user-list"
+                          value={newLetterForm.receiver}
+                          onChange={(e) =>
+                            setNewLetterForm({
+                              ...newLetterForm,
+                              receiver: e.target.value,
+                            })
+                          }
+                          placeholder="مثال: سرپرست کارخانه"
+                          className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-lg px-2.5 py-1 text-xs"
+                        />
+                      </div>
+
+                      {/* Type */}
+                      <div className="md:col-span-2 space-y-0.5">
+                        <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">نوع نامه</label>
+                        <select
+                          value={newLetterForm.type}
+                          onChange={(e) =>
+                            setNewLetterForm({
+                              ...newLetterForm,
+                              type: e.target.value as any,
+                            })
+                          }
+                          className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-lg px-2 py-1 text-xs bg-white dark:text-white"
+                        >
+                          <option value="internal">داخلی (بین‌بخشی)</option>
+                          <option value="incoming">وارده (سازمان بیرونی)</option>
+                          <option value="outgoing">صادره (سازمان بیرونی)</option>
+                        </select>
+                      </div>
+
+                      {/* Date */}
+                      <div className="md:col-span-2 space-y-0.5">
+                        <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">تاریخ نامه (شمسی)</label>
+                        <input
+                          required
+                          type="text"
+                          value={newLetterForm.date}
+                          onChange={(e) =>
+                            setNewLetterForm({
+                              ...newLetterForm,
+                              date: e.target.value,
+                            })
+                          }
+                          placeholder="۱۴۰۵/۰۴/۰۶"
+                          className="w-full border dark:border-slate-700 dark:bg-slate-900 rounded-lg px-2 py-1 text-xs font-mono text-center"
+                        />
+                      </div>
+
+                      <datalist id="user-list">
+                        {users.map((u) => (
+                          <option key={u.id} value={u.fullName} />
+                        ))}
+                      </datalist>
+                    </div>
+
+                    {/* Inline quick checkboxes and advanced settings trigger */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t dark:border-slate-700/60 text-xs">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <label className="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300 font-bold cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={newLetterForm.hideSubjectInLetter}
+                            onChange={(e) =>
+                              setNewLetterForm({
+                                ...newLetterForm,
+                                hideSubjectInLetter: e.target.checked,
+                              })
+                            }
+                            className="rounded text-purple-600 focus:ring-purple-500 w-3.5 h-3.5"
+                          />
+                          حذف موضوع از متن
+                        </label>
+                        <label className="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300 font-bold cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={newLetterForm.hideSalutationInLetter}
+                            onChange={(e) =>
+                              setNewLetterForm({
+                                ...newLetterForm,
+                                hideSalutationInLetter: e.target.checked,
+                              })
+                            }
+                            className="rounded text-purple-600 focus:ring-purple-500 w-3.5 h-3.5"
+                          />
+                          حذف عبارت «با سلام و احترام»
+                        </label>
+                        {companySettingsForm.companyStampUrl && (
+                          <label className="flex items-center gap-1.5 text-[11px] text-red-600 dark:text-red-400 font-bold cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={newLetterForm.addCompanyStamp}
+                              onChange={(e) =>
+                                setNewLetterForm({
+                                  ...newLetterForm,
+                                  addCompanyStamp: e.target.checked,
+                                })
+                              }
+                              className="rounded text-red-600 focus:ring-red-500 w-3.5 h-3.5"
+                            />
+                            درج مهر شرکت
+                          </label>
+                        )}
+                        <label className="flex items-center gap-1.5 text-[11px] text-purple-600 dark:text-purple-400 font-bold cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={newLetterForm.isPrivate}
+                            onChange={(e) =>
+                              setNewLetterForm({
+                                ...newLetterForm,
+                                isPrivate: e.target.checked,
+                              })
+                            }
+                            className="rounded text-purple-600 focus:ring-purple-500 w-3.5 h-3.5"
+                          />
+                          نامه محرمانه
+                        </label>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowAdvancedOptionsModal(true)}
+                          className="flex items-center gap-1 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all"
+                        >
+                          <Sliders size={13} />
+                          تنظیمات تکمیلی، امضاها و ضمائم ({newLetterForm.attachments?.length || 0} پیوست)
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
 
                 {/* Virtual Google Docs Workspace Canvas - Maximized Height */}
                 <div className="flex-1 min-h-0 flex flex-col bg-slate-200/90 dark:bg-slate-950 rounded-xl border border-slate-300 dark:border-slate-800 overflow-hidden shadow-inner">
@@ -5251,8 +3980,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                             onClick={() => {
                               insertHTML('<div style="line-height: 1.0;">'); // Not perfect but triggers format
                               if (quillRef.current) {
-                                const q = quillRef.current.getEditor();
-                                q.formatLine(
+                                const q = quillRef.current?.getEditor?.();
+                                if (q) q.formatLine(
                                   0,
                                   q.getLength(),
                                   "lineHeight",
@@ -5268,8 +3997,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                             type="button"
                             onClick={() => {
                               if (quillRef.current) {
-                                const q = quillRef.current.getEditor();
-                                q.formatLine(
+                                const q = quillRef.current?.getEditor?.();
+                                if (q) q.formatLine(
                                   0,
                                   q.getLength(),
                                   "lineHeight",
@@ -5285,8 +4014,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                             type="button"
                             onClick={() => {
                               if (quillRef.current) {
-                                const q = quillRef.current.getEditor();
-                                q.formatLine(
+                                const q = quillRef.current?.getEditor?.();
+                                if (q) q.formatLine(
                                   0,
                                   q.getLength(),
                                   "lineHeight",
@@ -5303,8 +4032,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                             type="button"
                             onClick={() => {
                               if (quillRef.current) {
-                                const q = quillRef.current.getEditor();
-                                q.format("align", "justify");
+                                const q = quillRef.current?.getEditor?.();
+                                if (q) q.format("align", "justify");
                               }
                             }}
                             className="w-full text-right px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between"
@@ -5652,7 +4381,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                                   className="w-full text-right px-4 py-2.5 hover:bg-blue-50 dark:hover:bg-blue-950/30 border-b border-slate-50 dark:border-slate-700/50 flex flex-col gap-0.5 transition-colors"
                                 >
                                   <span className="font-bold text-blue-700 dark:text-blue-400">
-                                    [نامه ${toPersianDigits(l.letterNumber)}]{" "}
+                                    [نامه {toPersianDigits(l.letterNumber)}]{" "}
                                     {l.subject}
                                   </span>
                                   <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate w-full">
@@ -6476,6 +5205,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                             </div>
                           ) : onlyOfficeDocKey && onlyOfficeFileUrl ? (
                             <div className="w-full h-full relative">
+                              <SafeEditorErrorBoundary onReset={() => changeEditorViewMode("office")}>
                               <SafeOnlyOfficeEditor
                                 id="onlyoffice-docx-editor"
                                 documentServerUrl={onlyOfficeDocServerUrl}
@@ -6527,6 +5257,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                                   setOnlyOfficeLoadError(errorDescription || "خطا در بارگذاری کتابخانه ONLYOFFICE");
                                 }}
                               />
+                              </SafeEditorErrorBoundary>
                             </div>
                           ) : (
                             <div className="flex flex-col items-center gap-4 text-center max-w-md p-6 bg-slate-800/80 rounded-2xl border border-slate-700 shadow-2xl">
@@ -6553,7 +5284,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
 
                     {/* MODE 2: Office Virtual Paper Workspace (A4/A5 Standard Letterhead) */}
                     {editorViewMode === "office" && (
-                      <div className="flex-1 min-h-0 p-4 sm:p-8 overflow-y-auto flex justify-center w-full relative custom-scrollbar">
+                      <div className="flex-1 min-h-0 p-1.5 sm:p-3 overflow-y-auto flex justify-center w-full relative custom-scrollbar">
                         <div
                           className="bg-white dark:bg-gray-900 shadow-2xl border border-slate-300 dark:border-slate-800 rounded-sm p-[1.8cm] mx-auto transition-all duration-300 google-docs-paper text-right relative flex flex-col justify-between my-auto"
                           style={{
@@ -6800,63 +5531,6 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                     )}
 
                   </div>
-
-                  {/* ONLYOFFICE Settings Modal */}
-                  {showOnlyOfficeSettingsModal && (
-                    <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-                      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-300 dark:border-slate-800 p-6 max-w-md w-full shadow-2xl text-right animate-scale-up">
-                        <div className="flex items-center justify-between pb-3 border-b dark:border-slate-800 mb-4">
-                          <div className="flex items-center gap-2 font-black text-slate-900 dark:text-white">
-                            <Building2 size={18} className="text-orange-500" />
-                            <span>تنظیمات سرور ONLYOFFICE Docs</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setShowOnlyOfficeSettingsModal(false)}
-                            className="text-slate-400 hover:text-slate-600 dark:hover:text-white"
-                          >
-                            <X size={18} />
-                          </button>
-                        </div>
-
-                        <div className="space-y-4 text-xs">
-                          <div>
-                            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                              آدرس سرور ONLYOFFICE Document Server:
-                            </label>
-                            <input
-                              type="text"
-                              value={customDocServerInput}
-                              onChange={(e) => setCustomDocServerInput(e.target.value)}
-                              placeholder="https://documentserver.onlyoffice.com یا http://your-server:8080"
-                              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border dark:border-slate-700 rounded-xl font-mono text-xs text-slate-900 dark:text-white"
-                              dir="ltr"
-                            />
-                            <p className="text-[11px] text-slate-400 mt-1">
-                              به طور پیش‌فرض از سرور رسمی ابری ONLYOFFICE استفاده می‌شود. اگر سرور لوکال یا داکر اختصاصی دارید، آدرس آن را وارد نمایید.
-                            </p>
-                          </div>
-
-                          <div className="flex justify-end gap-2 pt-2">
-                            <button
-                              type="button"
-                              onClick={() => handleSaveOnlyOfficeServerUrl("https://documentserver.onlyoffice.com")}
-                              className="px-3 py-1.5 rounded-xl border dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
-                            >
-                              بازنشانی به سرور پیش‌فرض
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleSaveOnlyOfficeServerUrl(customDocServerInput)}
-                              className="px-4 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold"
-                            >
-                              ذخیره و اتصال
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
 
                   {/* Microsoft Word / Google Docs Style Bottom Status Bar */}
                   <div className="bg-slate-100 dark:bg-slate-900 border-t border-slate-300 dark:border-slate-800 px-4 py-1.5 flex flex-wrap items-center justify-between text-[11px] text-slate-600 dark:text-slate-400 select-none shrink-0">

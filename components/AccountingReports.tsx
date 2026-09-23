@@ -50,7 +50,12 @@ import {
     ListFilter,
     FolderOpen,
     Copy,
-    ExternalLink
+    ExternalLink,
+    Square,
+    UserX,
+    UserCheck,
+    RotateCcw,
+    CheckCheck
 } from 'lucide-react';
 import * as jalaali from 'jalaali-js';
 import { 
@@ -147,8 +152,11 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
     // --- TAB 1: TRAZ STATE ---
     const [trazData, setTrazData] = useState<any[]>([]);
     const [trazSearch, setTrazSearch] = useState('');
-    const [trazCategory, setTrazCategory] = useState('all'); // all, customers, suppliers, personnel, shareholders
-    const [trazSortOrder, setTrazSortOrder] = useState<'desc' | 'asc'>('desc');
+    const [trazCategory, setTrazCategory] = useState('all'); // all, customers, suppliers, personnel, shareholders, debtors, creditors
+    const [trazSortBy, setTrazSortBy] = useState<'code' | 'name' | 'balance' | 'abs_balance' | 'bed' | 'bes'>('code');
+    const [trazSortOrder, setTrazSortOrder] = useState<'asc' | 'desc'>('asc');
+    const [excludedTrazCodes, setExcludedTrazCodes] = useState<string[]>([]);
+    const [showOnlyExcluded, setShowOnlyExcluded] = useState(false);
 
     // --- TAB 2: STATEMENT STATE ---
     const [tafsilis, setTafsilis] = useState<any[]>([]);
@@ -726,6 +734,7 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                 
                 const tafsili = tafsilis.find(t => t.Code === code || t.TafsiliCode === code);
                 const name = tafsili ? tafsili.Name : `کد اشخاص ${code}`;
+                const moein = parsed.moein || (tafsili?.MoeinGroup ? String(tafsili.MoeinGroup) : (code.startsWith('11') ? '11' : (code.startsWith('31') ? '31' : '')));
                 const bed = parseFloat(row.TotalBed || 0);
                 const bes = parseFloat(row.TotalBes || 0);
                 
@@ -734,10 +743,12 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                     existing.bed += bed;
                     existing.bes += bes;
                     existing.balance = existing.bed - existing.bes;
+                    if (!existing.moein && moein) existing.moein = moein;
                 } else {
                     groupedMap.set(code, {
                         code,
                         name,
+                        moein,
                         bed,
                         bes,
                         balance: bed - bes
@@ -755,23 +766,85 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
         }
     };
 
+    // Toggle exclusion of a person from Traz reports
+    const toggleExcludeTraz = (code: string) => {
+        setExcludedTrazCodes(prev => {
+            const exists = prev.includes(code);
+            if (exists) {
+                const next = prev.filter(c => c !== code);
+                toast.success('شخص به گزارش و محاسبات بازگردانده شد');
+                return next;
+            } else {
+                const next = [...prev, code];
+                toast.info('شخص از گزارش و محاسبات خارج شد');
+                return next;
+            }
+        });
+    };
+
+    const handleSelectAllTraz = () => {
+        setExcludedTrazCodes([]);
+        setShowOnlyExcluded(false);
+        toast.success('تمامی اشخاص در گزارش فعال شدند');
+    };
+
+    const handleDeselectAllTraz = () => {
+        const visibleCodes = getFilteredTraz(true).map(t => t.code);
+        setExcludedTrazCodes(prev => Array.from(new Set([...prev, ...visibleCodes])));
+        toast.info('تمامی اشخاص نمایان از گزارش خارج شدند');
+    };
+
+    const handleInvertTrazSelection = () => {
+        const visibleCodes = getFilteredTraz(true).map(t => t.code);
+        setExcludedTrazCodes(prev => {
+            const next = [...prev];
+            visibleCodes.forEach(code => {
+                const idx = next.indexOf(code);
+                if (idx >= 0) next.splice(idx, 1);
+                else next.push(code);
+            });
+            return next;
+        });
+        toast.info('وضعیت انتخاب اشخاص معکوس شد');
+    };
+
     // Filter and categorise Traz data
-    const getFilteredTraz = () => {
+    const getFilteredTraz = (includeExcluded: boolean = false) => {
         let items = trazData.filter(item => {
-            const matchesSearch = item.name.toLowerCase().includes(trazSearch.toLowerCase()) || 
-                                  item.code.includes(trazSearch);
+            const isExcluded = excludedTrazCodes.includes(item.code);
+            if (showOnlyExcluded) {
+                if (!isExcluded) return false;
+            } else if (!includeExcluded && isExcluded) {
+                return false;
+            }
+
+            const searchLower = trazSearch.toLowerCase().trim();
+            const matchesSearch = !searchLower || 
+                                  item.name.toLowerCase().includes(searchLower) || 
+                                  item.code.includes(searchLower);
             
             if (!matchesSearch) return false;
 
+            const codeStr = String(item.code || '');
+            const moeinStr = String(item.moein || '');
+            const nameStr = String(item.name || '');
+
             // Categories split logic
             if (trazCategory === 'customers') {
-                return item.name.includes('مشتری') || item.name.includes('خریدار');
+                const isPersonnel = codeStr.startsWith('113') || codeStr.startsWith('114') || nameStr.includes('پرسنل') || nameStr.includes('کارمند') || nameStr.includes('آقای') || nameStr.includes('خانم');
+                const isSupplier = moeinStr.startsWith('31') || codeStr.startsWith('31') || codeStr.startsWith('3');
+                const isShareholder = codeStr.startsWith('314') || codeStr.startsWith('315') || codeStr.startsWith('32') || nameStr.includes('سهام');
+                const isCustomer = moeinStr.startsWith('11') || codeStr.startsWith('11') || codeStr.startsWith('1') || nameStr.includes('مشتری') || nameStr.includes('خریدار') || nameStr.includes('صنایع') || nameStr.includes('بافندگی') || nameStr.includes('نساجی');
+                return !isPersonnel && !isSupplier && !isShareholder && isCustomer;
             } else if (trazCategory === 'suppliers') {
-                return item.name.includes('تامین') || item.name.includes('فروشنده') || item.name.includes('شرکت');
+                const isShareholder = codeStr.startsWith('314') || codeStr.startsWith('315') || codeStr.startsWith('32') || nameStr.includes('سهام');
+                const isPersonnel = codeStr.startsWith('313') || nameStr.includes('پرسنل') || nameStr.includes('کارمند');
+                const isSupplier = moeinStr.startsWith('31') || codeStr.startsWith('31') || codeStr.startsWith('3') || nameStr.includes('تامین') || nameStr.includes('فروشنده') || nameStr.includes('پتروشیمی');
+                return !isShareholder && !isPersonnel && isSupplier;
             } else if (trazCategory === 'personnel') {
-                return item.name.includes('پرسنل') || item.name.includes('همکار') || item.name.includes('آقای') || item.name.includes('خانم');
+                return moeinStr.startsWith('113') || moeinStr.startsWith('313') || codeStr.startsWith('113') || codeStr.startsWith('313') || nameStr.includes('پرسنل') || nameStr.includes('همکار') || nameStr.includes('کارمند') || nameStr.includes('آقای') || nameStr.includes('خانم');
             } else if (trazCategory === 'shareholders') {
-                return item.name.includes('سهام') || item.name.includes('هیئت');
+                return moeinStr.startsWith('314') || moeinStr.startsWith('315') || moeinStr.startsWith('32') || codeStr.startsWith('314') || codeStr.startsWith('315') || nameStr.includes('سهام') || nameStr.includes('سهامدار') || nameStr.includes('هیئت');
             } else if (trazCategory === 'debtors') {
                 return item.balance > 0;
             } else if (trazCategory === 'creditors') {
@@ -780,11 +853,25 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
             return true;
         });
 
-        // Sorting by absolute balance
+        // Dynamic Sorting
         items.sort((a, b) => {
-            const valA = Math.abs(a.balance);
-            const valB = Math.abs(b.balance);
-            return trazSortOrder === 'desc' ? valB - valA : valA - valB;
+            let res = 0;
+            if (trazSortBy === 'abs_balance') {
+                res = Math.abs(b.balance) - Math.abs(a.balance);
+            } else if (trazSortBy === 'balance') {
+                res = b.balance - a.balance;
+            } else if (trazSortBy === 'bed') {
+                res = (b.bed || 0) - (a.bed || 0);
+            } else if (trazSortBy === 'bes') {
+                res = (b.bes || 0) - (a.bes || 0);
+            } else if (trazSortBy === 'name') {
+                res = a.name.localeCompare(b.name, 'fa');
+            } else if (trazSortBy === 'code') {
+                res = a.code.localeCompare(b.code, 'fa', { numeric: true });
+            } else {
+                res = Math.abs(b.balance) - Math.abs(a.balance);
+            }
+            return trazSortOrder === 'desc' ? res : -res;
         });
 
         return items;
@@ -955,6 +1042,204 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                 printWindow.print();
                 printWindow.close();
             }, 500);
+        }
+    };
+
+    // Export Traz (Debtors / Creditors / Full / Current View) to professional Excel matching the PDF layout
+    const handleExportTrazExcel = async (type: 'bed' | 'bes' | 'both' | 'current') => {
+        const fullList = getFilteredTraz(false);
+        const list = type === 'current' 
+            ? fullList 
+            : fullList.filter(t => type === 'both' ? t.balance !== 0 : (type === 'bed' ? t.balance > 0 : t.balance < 0));
+
+        if (list.length === 0) {
+            toast.error('هیچ رکوردی برای خروجی اکسل وجود ندارد.');
+            return;
+        }
+
+        const loadingToast = toast.loading('در حال ساخت فایل اکسل تراز...');
+        try {
+            const ExcelJSModule = await import('exceljs');
+            const ExcelJS = (ExcelJSModule as any).default || ExcelJSModule;
+            const wb = new ExcelJS.Workbook();
+            wb.creator = 'سیستم یکپارچه سایان ERP';
+            wb.created = new Date();
+
+            let typeLabel = 'تراز بدهکاران و بستانکاران';
+            if (type === 'bed') typeLabel = 'مانده بدهکاران';
+            else if (type === 'bes') typeLabel = 'مانده بستانکاران';
+            else if (type === 'current') {
+                const catMap: Record<string, string> = {
+                    all: 'تمام حساب‌ها',
+                    customers: 'مشتریان (حساب‌های دریافتنی)',
+                    suppliers: 'تامین‌کنندگان (حساب‌های پرداختنی)',
+                    personnel: 'پرسنل و همکاران',
+                    shareholders: 'سهام‌داران و شرکا',
+                    debtors: 'بدهکاران',
+                    creditors: 'بستانکاران'
+                };
+                typeLabel = `تراز اشخاص - ${catMap[trazCategory] || 'نمای جاری'}`;
+            }
+
+            const ws = wb.addWorksheet(typeLabel.substring(0, 31), {
+                views: [{ rtl: true, showGridLines: true }]
+            });
+
+            // Set column widths
+            ws.columns = [
+                { header: '', key: 'idx', width: 8 },
+                { header: '', key: 'code', width: 16 },
+                { header: '', key: 'name', width: 38 },
+                { header: '', key: 'bed', width: 22 },
+                { header: '', key: 'bes', width: 22 },
+                { header: '', key: 'balance', width: 24 },
+                { header: '', key: 'status', width: 14 }
+            ];
+
+            // 1. Title Banner
+            const titleRow = ws.addRow([`گزارش ${typeLabel} - سیستم یکپارچه سایان ERP`]);
+            ws.mergeCells('A1:G1');
+            titleRow.height = 36;
+            titleRow.getCell(1).font = { name: 'Tahoma', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+            titleRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
+            titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+
+            // 2. Info Bar
+            const dateFromStr = dateFrom || 'ابتدا';
+            const dateToStr = dateTo || 'امروز';
+            const sortLabelMap: Record<string, string> = {
+                code: 'کد تفصیلی (سایان)',
+                name: 'نام الفبایی',
+                balance: 'مانده حساب',
+                abs_balance: 'بیشترین تعهد مالی',
+                bed: 'گردش بدهکار',
+                bes: 'گردش بستانکار'
+            };
+            const infoRow = ws.addRow([
+                `دوره مالی: از ${dateFromStr} تا ${dateToStr}  |  سورت: ${sortLabelMap[trazSortBy] || 'استاندارد سایان'} (${trazSortOrder === 'asc' ? 'صعودی' : 'نزولی'})  |  تاریخ: ${formatDateToJalali(new Date().toISOString())}  |  تعداد: ${list.length}`
+            ]);
+            ws.mergeCells('A2:G2');
+            infoRow.height = 24;
+            infoRow.getCell(1).font = { name: 'Tahoma', size: 9, bold: true, color: { argb: 'FF475569' } };
+            infoRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+            infoRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+
+            // 3. Header Row
+            const headers = ['ردیف', 'کد تفصیلی', 'نام شخص / شرکت', 'مجموع بدهکار (ریال)', 'مجموع بستانکار (ریال)', 'مانده حساب (ریال)', 'تشخیص'];
+            const headerRow = ws.addRow(headers);
+            headerRow.height = 28;
+            headerRow.eachCell((cell) => {
+                cell.font = { name: 'Tahoma', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                cell.border = {
+                    top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+                    bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
+                    left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+                    right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+                };
+            });
+
+            // 4. Data Rows
+            let totalBedSum = 0;
+            let totalBesSum = 0;
+            let totalBalSum = 0;
+
+            list.forEach((row, idx) => {
+                totalBedSum += row.bed || 0;
+                totalBesSum += row.bes || 0;
+                totalBalSum += row.balance || 0;
+
+                const isBed = row.balance > 0;
+                const r = ws.addRow([
+                    idx + 1,
+                    row.code,
+                    row.name,
+                    row.bed || 0,
+                    row.bes || 0,
+                    row.balance || 0,
+                    isBed ? 'بدهکار' : 'بستانکار'
+                ]);
+
+                r.height = 22;
+                const isEven = idx % 2 === 1;
+                const bgColor = isEven ? 'FFF8FAFC' : 'FFFFFFFF';
+
+                r.eachCell((cell, colNum) => {
+                    cell.font = { name: 'Tahoma', size: 9 };
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+                    cell.border = {
+                        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+                        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+                        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+                        right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+                    };
+
+                    if (colNum === 1 || colNum === 2) {
+                        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                    } else if (colNum === 3) {
+                        cell.alignment = { vertical: 'middle', horizontal: 'right' };
+                        cell.font = { name: 'Tahoma', size: 9, bold: true };
+                    } else if (colNum >= 4 && colNum <= 6) {
+                        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+                        cell.numFmt = '#,##0';
+                        if (colNum === 6) {
+                            cell.font = { name: 'Tahoma', size: 9, bold: true, color: { argb: isBed ? 'FFBE123C' : 'FF047857' } };
+                        }
+                    } else if (colNum === 7) {
+                        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                        cell.font = { name: 'Tahoma', size: 9, bold: true, color: { argb: isBed ? 'FFBE123C' : 'FF047857' } };
+                    }
+                });
+            });
+
+            // 5. Total Row
+            const totalRow = ws.addRow([
+                'جمع کل',
+                '',
+                `تعداد: ${list.length} شخص`,
+                totalBedSum,
+                totalBesSum,
+                totalBalSum,
+                totalBalSum > 0 ? 'بدهکار' : 'بستانکار'
+            ]);
+            totalRow.height = 26;
+            totalRow.eachCell((cell, colNum) => {
+                cell.font = { name: 'Tahoma', size: 10, bold: true, color: { argb: 'FF0F172A' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+                cell.border = {
+                    top: { style: 'medium', color: { argb: 'FF0F172A' } },
+                    bottom: { style: 'double', color: { argb: 'FF0F172A' } },
+                    left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+                    right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+                };
+                if (colNum >= 4 && colNum <= 6) {
+                    cell.alignment = { vertical: 'middle', horizontal: 'left' };
+                    cell.numFmt = '#,##0';
+                } else if (colNum === 1 || colNum === 7) {
+                    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                } else {
+                    cell.alignment = { vertical: 'middle', horizontal: 'right' };
+                }
+            });
+
+            const buf = await wb.xlsx.writeBuffer();
+            const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            const filename = `Traz_${type === 'both' ? 'All' : (type === 'bed' ? 'Debtors' : 'Creditors')}_${Date.now()}.xlsx`;
+            
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+
+            toast.success('فایل اکسل با موفقیت ایجاد و دانلود شد', { id: loadingToast });
+        } catch (err: any) {
+            console.error('Error generating Excel file:', err);
+            toast.error(`خطا در تولید فایل اکسل: ${err.message}`, { id: loadingToast });
         }
     };
 
@@ -4505,73 +4790,194 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                             </button>
                         </div>
 
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
                             <div>
                                 <h2 className="text-xl font-bold text-slate-800">مانده بدهکاران و بستانکاران</h2>
-                                <p className="text-xs text-slate-500 mt-1">تراز اشخاص، سورت شده براساس بیشترین تعهد مالی</p>
+                                <p className="text-xs text-slate-500 mt-1">تراز اشخاص، سورت شده، با امکان فیلتر، تفکیک دسته‌بندی، خروج اشخاص و خروجی اکسل و PDF</p>
                             </div>
                             
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                                 <select 
-                                    className="border border-slate-300 rounded-md py-1.5 px-3 text-xs bg-white font-medium focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    className="border border-slate-300 rounded-lg py-2 px-3 text-xs bg-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs cursor-pointer"
                                     value={trazCategory}
                                     onChange={(e) => setTrazCategory(e.target.value)}
                                 >
-                                    <option value="all">همه اشخاص</option>
-                                    <option value="customers">مشتریان</option>
-                                    <option value="suppliers">تامین کنندگان</option>
-                                    <option value="personnel">پرسنل و همکاران</option>
-                                    <option value="shareholders">سهام داران</option>
-                                    <option value="debtors">بدهکاران (فقط بدهکار)</option>
-                                    <option value="creditors">بستانکاران (فقط بستانکار)</option>
+                                    <option value="all">📂 تمام دسته‌ها (همه اشخاص)</option>
+                                    <option value="customers">👥 مشتریان (حساب‌های دریافتنی)</option>
+                                    <option value="suppliers">🏭 تامین‌کنندگان (حساب‌های پرداختنی)</option>
+                                    <option value="personnel">💼 پرسنل و همکاران</option>
+                                    <option value="shareholders">🏛 سهام‌داران و شرکا</option>
+                                    <option value="debtors">🔴 فقط بدهکاران (مانده مثبت)</option>
+                                    <option value="creditors">🟢 فقط بستانکاران (مانده منفی)</option>
+                                </select>
+
+                                <select 
+                                    className="border border-slate-300 rounded-lg py-2 px-3 text-xs bg-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs cursor-pointer"
+                                    value={trazSortBy}
+                                    onChange={(e: any) => setTrazSortBy(e.target.value)}
+                                >
+                                    <option value="code">سورت استاندارد سایان: کد تفصیلی (عددی)</option>
+                                    <option value="name">سورت: نام شخص / شرکت (الفبایی)</option>
+                                    <option value="balance">سورت: مانده حساب (بدهکار به بستانکار)</option>
+                                    <option value="abs_balance">سورت: بیشترین تعهد مالی (قدر مطلق)</option>
+                                    <option value="bed">سورت: مجموع بدهکار (بیشترین گردش)</option>
+                                    <option value="bes">سورت: مجموع بستانکار (بیشترین گردش)</option>
                                 </select>
 
                                 <button 
+                                    type="button"
                                     onClick={() => setTrazSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
-                                    className="flex items-center gap-1 border border-slate-300 rounded-md py-1.5 px-3 text-xs bg-white hover:bg-slate-50 font-medium transition-colors"
+                                    className="flex items-center gap-1.5 border border-slate-300 rounded-lg py-2 px-3 text-xs bg-white hover:bg-slate-50 font-bold transition-all shadow-xs cursor-pointer"
                                     title="تغییر جهت مرتب‌سازی"
                                 >
-                                    <ArrowUpDown className="w-3.5 h-3.5 text-slate-500" />
-                                    <span>سورت: {trazSortOrder === 'desc' ? 'نزولی' : 'صعودی'}</span>
+                                    <ArrowUpDown className="w-3.5 h-3.5 text-blue-600" />
+                                    <span>{trazSortOrder === 'desc' ? 'نزولی (بیشترین)' : 'صعودی (کمترین)'}</span>
                                 </button>
                                 
-                                <div className="relative w-full md:w-56">
+                                <div className="relative w-full sm:w-52">
                                     <Search className="absolute right-2.5 top-2.5 h-4 w-4 text-slate-400" />
                                     <input 
                                         type="text"
-                                        placeholder="جستجوی شخص..." 
-                                        className="w-full pl-3 pr-8 py-1.5 border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        placeholder="جستجوی نام یا کد..." 
+                                        className="w-full pl-3 pr-8 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                                         value={trazSearch}
                                         onChange={(e) => setTrazSearch(e.target.value)}
                                     />
                                 </div>
+                            </div>
+                        </div>
 
-                                <button 
-                                    onClick={() => handlePrintTrazReport('bed')} 
-                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-md border border-rose-200 text-xs font-semibold transition-colors"
+                        {/* Fast Action Toolbar (Excel, PDF, Exclude / Select Controls) */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                                    <Filter className="w-3.5 h-3.5 text-slate-500" />
+                                    عملیات انتخاب و خروج:
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={handleSelectAllTraz}
+                                    className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-md text-xs font-medium transition-colors cursor-pointer shadow-2xs"
+                                    title="شامل کردن تمام اشخاص در گزارش"
                                 >
-                                    <Printer className="w-3.5 h-3.5" /> خروجی بدهکاران
+                                    انتخاب همه
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleDeselectAllTraz}
+                                    className="px-2.5 py-1 bg-white hover:bg-slate-100 text-rose-700 border border-rose-200 rounded-md text-xs font-medium transition-colors cursor-pointer shadow-2xs"
+                                    title="خروج تمام اشخاص لیست از گزارش"
+                                >
+                                    خروج همه
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleInvertTrazSelection}
+                                    className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-md text-xs font-medium transition-colors cursor-pointer shadow-2xs"
+                                    title="معکوس کردن انتخاب‌ها"
+                                >
+                                    معکوس‌سازی انتخاب
+                                </button>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                                {/* Excel Exports */}
+                                <button 
+                                    type="button"
+                                    onClick={() => handleExportTrazExcel('current')} 
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+                                    title="خروجی اکسل دقیقاً مطابق با سورت، فیلتر و دسته‌بندی فعلی در حال مشاهده"
+                                >
+                                    <FileSpreadsheet className="w-3.5 h-3.5" /> اکسل نمای فعلی
                                 </button>
                                 <button 
-                                    onClick={() => handlePrintTrazReport('bes')} 
-                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-md border border-emerald-200 text-xs font-semibold transition-colors"
+                                    type="button"
+                                    onClick={() => handleExportTrazExcel('bed')} 
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+                                    title="خروجی اکسل فرمت‌بندی شده بدهکاران مشابه گزارش PDF"
                                 >
-                                    <Printer className="w-3.5 h-3.5" /> خروجی بستانکاران
+                                    <FileSpreadsheet className="w-3.5 h-3.5" /> اکسل بدهکاران
+                                </button>
+                                <button 
+                                    type="button"
+                                    onClick={() => handleExportTrazExcel('bes')} 
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+                                    title="خروجی اکسل فرمت‌بندی شده بستانکاران مشابه گزارش PDF"
+                                >
+                                    <FileSpreadsheet className="w-3.5 h-3.5" /> اکسل بستانکاران
+                                </button>
+                                <button 
+                                    type="button"
+                                    onClick={() => handleExportTrazExcel('both')} 
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+                                    title="خروجی اکسل کامل کل تراز (بدهکار و بستانکار)"
+                                >
+                                    <FileSpreadsheet className="w-3.5 h-3.5" /> اکسل کل تراز
+                                </button>
+
+                                <div className="h-5 w-px bg-slate-300 mx-1 hidden sm:block" />
+
+                                {/* PDF Print */}
+                                <button 
+                                    type="button"
+                                    onClick={() => handlePrintTrazReport('bed')} 
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-lg border border-rose-200 text-xs font-semibold transition-colors cursor-pointer"
+                                >
+                                    <Printer className="w-3.5 h-3.5" /> PDF بدهکاران
+                                </button>
+                                <button 
+                                    type="button"
+                                    onClick={() => handlePrintTrazReport('bes')} 
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg border border-slate-300 text-xs font-semibold transition-colors cursor-pointer"
+                                >
+                                    <Printer className="w-3.5 h-3.5" /> PDF بستانکاران
                                 </button>
                             </div>
                         </div>
 
+                        {/* Excluded Warning Banner */}
+                        {excludedTrazCodes.length > 0 && (
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900 animate-fadeIn">
+                                <div className="flex items-center gap-2">
+                                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                                    <span>
+                                        <strong>{excludedTrazCodes.length.toLocaleString('fa-IR')} شخص</strong> به انتخاب شما از محاسبات، گزارش‌ها و خروجی‌های PDF و اکسل خارج شده‌اند.
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowOnlyExcluded(prev => !prev)}
+                                        className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-md font-bold text-[11px] transition-colors cursor-pointer"
+                                    >
+                                        {showOnlyExcluded ? 'بازگشت به لیست اصلی' : 'مشاهده اشخاص خارج‌شده'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setExcludedTrazCodes([]);
+                                            setShowOnlyExcluded(false);
+                                            toast.success('تمامی اشخاص مجدداً به گزارش اضافه شدند');
+                                        }}
+                                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-md font-bold text-[11px] transition-colors shadow-xs cursor-pointer"
+                                    >
+                                        بازگردانی همه به گزارش
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Traz KPIs */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div className="bg-rose-50/50 rounded-xl border border-rose-100/80 p-4">
-                                <div className="text-rose-700 font-bold text-xs">جمع بدهی بدهکاران</div>
+                                <div className="text-rose-700 font-bold text-xs">جمع بدهی بدهکاران (فعال در گزارش)</div>
                                 <div className="text-2xl font-extrabold text-rose-900 mt-2 font-mono">
                                     {formatMoney(filteredTraz.filter(t => t.balance > 0).reduce((sum, r) => sum + r.balance, 0))} <span className="text-xs font-medium">ریال</span>
                                 </div>
                                 <div className="text-[10px] text-rose-600 mt-1">شامل {filteredTraz.filter(t => t.balance > 0).length} شخص بدهکار</div>
                             </div>
                             <div className="bg-emerald-50/50 rounded-xl border border-emerald-100/80 p-4">
-                                <div className="text-emerald-700 font-bold text-xs">جمع طلب بستانکاران</div>
+                                <div className="text-emerald-700 font-bold text-xs">جمع طلب بستانکاران (فعال در گزارش)</div>
                                 <div className="text-2xl font-extrabold text-emerald-900 mt-2 font-mono">
                                     {formatMoney(filteredTraz.filter(t => t.balance < 0).reduce((sum, r) => sum + Math.abs(r.balance), 0))} <span className="text-xs font-medium">ریال</span>
                                 </div>
@@ -4582,73 +4988,197 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                 <div className="text-2xl font-extrabold text-blue-900 mt-2 font-mono">
                                     {formatMoney(filteredTraz.reduce((sum, r) => sum + r.balance, 0))} <span className="text-xs font-medium">ریال</span>
                                 </div>
-                                <div className="text-[10px] text-blue-600 mt-1">مانده خالص برآیند حساب‌های جاری</div>
+                                <div className="text-[10px] text-blue-600 mt-1">برآیند {filteredTraz.length} حساب فعال در لیست</div>
                             </div>
                         </div>
 
                         {/* Traz Data Table */}
-                        <div className="rounded-xl border border-slate-200 overflow-hidden max-h-[500px] overflow-y-auto">
+                        <div className="rounded-xl border border-slate-200 overflow-hidden max-h-[550px] overflow-y-auto shadow-xs">
                             {/* Desktop View */}
                             <table className="w-full text-right text-xs hidden md:table">
-                                <thead className="bg-slate-50 sticky top-0 border-b border-slate-200 z-10">
+                                <thead className="bg-slate-100 sticky top-0 border-b border-slate-200 z-10 select-none">
                                     <tr>
-                                        <th className="p-3.5 font-bold text-slate-700 w-16 text-center">ردیف</th>
-                                        <th className="p-3.5 font-bold text-slate-700 w-32">کد تفصیلی</th>
-                                        <th className="p-3.5 font-bold text-slate-700">نام و نام خانوادگی شخص</th>
-                                        <th className="p-3.5 font-bold text-slate-700 text-left">مجموع بدهکار (ریال)</th>
-                                        <th className="p-3.5 font-bold text-slate-700 text-left">مجموع بستانکار (ریال)</th>
-                                        <th className="p-3.5 font-bold text-slate-700 text-left">مانده حساب (ریال)</th>
-                                        <th className="p-3.5 font-bold text-slate-700 w-28 text-center">تشخیص</th>
-                                        <th className="p-3.5 font-bold text-slate-700 w-32 text-center">عملیات</th>
+                                        <th className="p-3 font-bold text-slate-700 w-12 text-center">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const allCurrentlyVisible = filteredTraz.map(r => r.code);
+                                                    const isAllExcluded = allCurrentlyVisible.every(c => excludedTrazCodes.includes(c));
+                                                    if (isAllExcluded) {
+                                                        setExcludedTrazCodes(prev => prev.filter(c => !allCurrentlyVisible.includes(c)));
+                                                    } else {
+                                                        setExcludedTrazCodes(prev => Array.from(new Set([...prev, ...allCurrentlyVisible])));
+                                                    }
+                                                }}
+                                                className="hover:text-blue-600 cursor-pointer"
+                                                title="انتخاب یا خروج همه رکوردهای جدول"
+                                            >
+                                                <CheckSquare className="w-4 h-4 mx-auto text-slate-600" />
+                                            </button>
+                                        </th>
+                                        <th className="p-3 font-bold text-slate-700 w-14 text-center">ردیف</th>
+                                        <th 
+                                            onClick={() => {
+                                                setTrazSortBy('code');
+                                                setTrazSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+                                            }}
+                                            className="p-3 font-bold text-slate-700 w-28 cursor-pointer hover:bg-slate-200/70 transition-colors"
+                                            title="کلیک برای سورت بر اساس کد تفصیلی"
+                                        >
+                                            <div className="flex items-center gap-1">
+                                                <span>کد تفصیلی</span>
+                                                {trazSortBy === 'code' && <ArrowUpDown className="w-3 h-3 text-blue-600" />}
+                                            </div>
+                                        </th>
+                                        <th 
+                                            onClick={() => {
+                                                setTrazSortBy('name');
+                                                setTrazSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+                                            }}
+                                            className="p-3 font-bold text-slate-700 cursor-pointer hover:bg-slate-200/70 transition-colors"
+                                            title="کلیک برای سورت الفبایی نام شخص"
+                                        >
+                                            <div className="flex items-center gap-1">
+                                                <span>نام شخص / شرکت</span>
+                                                {trazSortBy === 'name' && <ArrowUpDown className="w-3 h-3 text-blue-600" />}
+                                            </div>
+                                        </th>
+                                        <th 
+                                            onClick={() => {
+                                                setTrazSortBy('bed');
+                                                setTrazSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+                                            }}
+                                            className="p-3 font-bold text-slate-700 text-left cursor-pointer hover:bg-slate-200/70 transition-colors"
+                                            title="کلیک برای سورت بر اساس گردش بدهکار"
+                                        >
+                                            <div className="flex items-center justify-end gap-1">
+                                                <span>مجموع بدهکار (ریال)</span>
+                                                {trazSortBy === 'bed' && <ArrowUpDown className="w-3 h-3 text-blue-600" />}
+                                            </div>
+                                        </th>
+                                        <th 
+                                            onClick={() => {
+                                                setTrazSortBy('bes');
+                                                setTrazSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+                                            }}
+                                            className="p-3 font-bold text-slate-700 text-left cursor-pointer hover:bg-slate-200/70 transition-colors"
+                                            title="کلیک برای سورت بر اساس گردش بستانکار"
+                                        >
+                                            <div className="flex items-center justify-end gap-1">
+                                                <span>مجموع بستانکار (ریال)</span>
+                                                {trazSortBy === 'bes' && <ArrowUpDown className="w-3 h-3 text-blue-600" />}
+                                            </div>
+                                        </th>
+                                        <th 
+                                            onClick={() => {
+                                                setTrazSortBy(trazSortBy === 'abs_balance' ? 'balance' : 'abs_balance');
+                                                setTrazSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+                                            }}
+                                            className="p-3 font-bold text-slate-700 text-left cursor-pointer hover:bg-slate-200/70 transition-colors"
+                                            title="کلیک برای سورت بر اساس مانده نهایی"
+                                        >
+                                            <div className="flex items-center justify-end gap-1">
+                                                <span>مانده حساب (ریال)</span>
+                                                {(trazSortBy === 'balance' || trazSortBy === 'abs_balance') && <ArrowUpDown className="w-3 h-3 text-blue-600" />}
+                                            </div>
+                                        </th>
+                                        <th className="p-3 font-bold text-slate-700 w-24 text-center">تشخیص</th>
+                                        <th className="p-3 font-bold text-slate-700 w-44 text-center">عملیات</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100">
+                                <tbody className="divide-y divide-slate-100 bg-white">
                                     {filteredTraz.length === 0 ? (
                                         <tr>
-                                            <td colSpan={8} className="text-center py-12 text-slate-400 font-medium">
+                                            <td colSpan={9} className="text-center py-12 text-slate-400 font-medium">
                                                 {isLoading ? (
                                                     <div className="flex items-center justify-center gap-2">
                                                         <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
                                                         <span>در حال واکشی اطلاعات تراز سایان...</span>
                                                     </div>
-                                                ) : 'هیچ رکوردی یافت نشد'}
+                                                ) : (showOnlyExcluded ? 'هیچ شخص خارج‌شده‌ای وجود ندارد' : 'هیچ رکوردی با فیلتر فعلی یافت نشد')}
                                             </td>
                                         </tr>
                                     ) : (
-                                        filteredTraz.map((row, idx) => (
-                                            <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
-                                                <td className="p-3 text-slate-400 text-center font-medium">{idx + 1}</td>
-                                                <td className="p-3 font-mono text-slate-600 font-medium">{row.code}</td>
-                                                <td className="p-3 font-bold text-slate-900">{row.name}</td>
-                                                <td className="p-3 text-left text-rose-600 font-mono font-medium">{formatMoney(row.bed)}</td>
-                                                <td className="p-3 text-left text-emerald-600 font-mono font-medium">{formatMoney(row.bes)}</td>
-                                                <td className={`p-3 text-left font-extrabold font-mono ${row.balance > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
-                                                    {formatMoney(row.balance)}
-                                                </td>
-                                                <td className="p-3 text-center">
-                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                                                        row.balance > 0 ? 'bg-rose-50 text-rose-700 border border-rose-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                                                    }`}>
-                                                        {row.balance > 0 ? 'بدهکار' : 'بستانکار'}
-                                                    </span>
-                                                </td>
-                                                <td className="p-3 text-center">
-                                                    <button
-                                                        onClick={() => {
-                                                            setSelectedTafsili(row.code);
-                                                            setModalTafsiliCode(row.code);
-                                                            setModalTafsiliName(row.name);
-                                                            setIsStatementModalOpen(true);
-                                                            fetchStatement(row.code);
-                                                        }}
-                                                        className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-md border border-blue-200 text-[10px] flex items-center gap-1 mx-auto transition-colors cursor-pointer shadow-sm"
-                                                    >
-                                                        <FileText className="w-3.5 h-3.5" />
-                                                        صورتحساب ریز
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))
+                                        filteredTraz.map((row, idx) => {
+                                            const isExcluded = excludedTrazCodes.includes(row.code);
+                                            return (
+                                                <tr key={row.code || idx} className={`hover:bg-slate-50/80 transition-colors ${isExcluded ? 'bg-amber-50/40 opacity-60' : ''}`}>
+                                                    <td className="p-3 text-center">
+                                                        <input 
+                                                            type="checkbox"
+                                                            checked={!isExcluded}
+                                                            onChange={() => toggleExcludeTraz(row.code)}
+                                                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                            title={isExcluded ? 'کلیک برای بازگردانی به گزارش' : 'کلیک برای خروج از گزارش'}
+                                                        />
+                                                    </td>
+                                                    <td className="p-3 text-slate-400 text-center font-medium">{idx + 1}</td>
+                                                    <td className="p-3 font-mono text-slate-600 font-medium">{row.code}</td>
+                                                    <td className="p-3 font-bold text-slate-900">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className={isExcluded ? 'line-through text-slate-500' : ''}>{row.name}</span>
+                                                            {isExcluded && (
+                                                                <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-medium">خارج از گزارش</span>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-3 text-left text-rose-600 font-mono font-medium">{formatMoney(row.bed)}</td>
+                                                    <td className="p-3 text-left text-emerald-600 font-mono font-medium">{formatMoney(row.bes)}</td>
+                                                    <td className={`p-3 text-left font-extrabold font-mono ${row.balance > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                                                        {formatMoney(row.balance)}
+                                                    </td>
+                                                    <td className="p-3 text-center">
+                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                                                            row.balance > 0 ? 'bg-rose-50 text-rose-700 border border-rose-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                                                        }`}>
+                                                            {row.balance > 0 ? 'بدهکار' : 'بستانکار'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-3 text-center">
+                                                        <div className="flex items-center justify-center gap-1.5">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setSelectedTafsili(row.code);
+                                                                    setModalTafsiliCode(row.code);
+                                                                    setModalTafsiliName(row.name);
+                                                                    setIsStatementModalOpen(true);
+                                                                    fetchStatement(row.code);
+                                                                }}
+                                                                className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-md border border-blue-200 text-[10px] flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                                                                title="مشاهده ریز گردش و صورتحساب تفصیلی"
+                                                            >
+                                                                <FileText className="w-3.5 h-3.5" />
+                                                                صورتحساب
+                                                            </button>
+
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => toggleExcludeTraz(row.code)}
+                                                                className={`px-2 py-1 rounded-md border text-[10px] flex items-center gap-1 font-semibold transition-colors cursor-pointer ${
+                                                                    isExcluded 
+                                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' 
+                                                                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200'
+                                                                }`}
+                                                                title={isExcluded ? 'بازگردانی به محاسبات و گزارشات' : 'خروج موقت از گزارش و اکسل'}
+                                                            >
+                                                                {isExcluded ? (
+                                                                    <>
+                                                                        <UserCheck className="w-3 h-3 text-emerald-600" />
+                                                                        <span>بازگردانی</span>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <UserX className="w-3 h-3 text-rose-500" />
+                                                                        <span>خروج</span>
+                                                                    </>
+                                                                )}
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })
                                     )}
                                 </tbody>
                             </table>
@@ -4662,57 +5192,84 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                                 <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
                                                 <span>در حال واکشی اطلاعات تراز سایان...</span>
                                             </div>
-                                        ) : 'هیچ رکوردی یافت نشد'}
+                                        ) : (showOnlyExcluded ? 'هیچ شخص خارج‌شده‌ای وجود ندارد' : 'هیچ رکوردی یافت نشد')}
                                     </div>
                                 ) : (
-                                    filteredTraz.map((row, idx) => (
-                                        <div key={idx} className="p-4 hover:bg-slate-50/50 transition-colors space-y-3">
-                                            <div className="flex items-start justify-between gap-2">
-                                                <div>
-                                                    <span className="text-[10px] text-slate-400 font-medium font-mono">#{idx + 1} | کد: {row.code}</span>
-                                                    <h3 className="text-sm font-black text-slate-900 mt-0.5">{row.name}</h3>
+                                    filteredTraz.map((row, idx) => {
+                                        const isExcluded = excludedTrazCodes.includes(row.code);
+                                        return (
+                                            <div key={row.code || idx} className={`p-4 hover:bg-slate-50/50 transition-colors space-y-3 ${isExcluded ? 'bg-amber-50/40 opacity-60' : ''}`}>
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="flex items-start gap-2">
+                                                        <input 
+                                                            type="checkbox"
+                                                            checked={!isExcluded}
+                                                            onChange={() => toggleExcludeTraz(row.code)}
+                                                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer mt-1"
+                                                        />
+                                                        <div>
+                                                            <span className="text-[10px] text-slate-400 font-medium font-mono">#{idx + 1} | کد: {row.code}</span>
+                                                            <h3 className={`text-sm font-black text-slate-900 mt-0.5 ${isExcluded ? 'line-through text-slate-500' : ''}`}>{row.name}</h3>
+                                                            {isExcluded && (
+                                                                <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-medium mt-1 inline-block">خارج از گزارش</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold border ${
+                                                        row.balance > 0 ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                                    }`}>
+                                                        {row.balance > 0 ? 'بدهکار' : 'بستانکار'}
+                                                    </span>
                                                 </div>
-                                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold border ${
-                                                    row.balance > 0 ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                                }`}>
-                                                    {row.balance > 0 ? 'بدهکار' : 'بستانکار'}
-                                                </span>
-                                            </div>
-                                            
-                                            <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2.5 rounded-xl text-[11px]">
-                                                <div>
-                                                    <div className="text-slate-400 font-medium">گردش بدهکار</div>
-                                                    <div className="font-mono font-bold text-slate-700 mt-0.5">{formatMoney(row.bed)}</div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-slate-400 font-medium">گردش بستانکار</div>
-                                                    <div className="font-mono font-bold text-slate-700 mt-0.5">{formatMoney(row.bes)}</div>
-                                                </div>
-                                                <div className="text-left">
-                                                    <div className="text-slate-400 font-medium">مانده نهایی</div>
-                                                    <div className={`font-mono font-black mt-0.5 ${row.balance > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
-                                                        {formatMoney(row.balance)}
+                                                
+                                                <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2.5 rounded-xl text-[11px]">
+                                                    <div>
+                                                        <div className="text-slate-400 font-medium">گردش بدهکار</div>
+                                                        <div className="font-mono font-bold text-slate-700 mt-0.5">{formatMoney(row.bed)}</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-slate-400 font-medium">گردش بستانکار</div>
+                                                        <div className="font-mono font-bold text-slate-700 mt-0.5">{formatMoney(row.bes)}</div>
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <div className="text-slate-400 font-medium">مانده نهایی</div>
+                                                        <div className={`font-mono font-black mt-0.5 ${row.balance > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                                                            {formatMoney(row.balance)}
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
 
-                                            <div className="flex justify-end pt-1">
-                                                <button
-                                                    onClick={() => {
-                                                        setSelectedTafsili(row.code);
-                                                        setModalTafsiliCode(row.code);
-                                                        setModalTafsiliName(row.name);
-                                                        setIsStatementModalOpen(true);
-                                                        fetchStatement(row.code);
-                                                    }}
-                                                    className="w-full py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg border border-blue-200 text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-sm"
-                                                >
-                                                    <FileText className="w-4 h-4" />
-                                                    مشاهده صورتحساب ریز تفصیلی
-                                                </button>
+                                                <div className="grid grid-cols-2 gap-2 pt-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setSelectedTafsili(row.code);
+                                                            setModalTafsiliCode(row.code);
+                                                            setModalTafsiliName(row.name);
+                                                            setIsStatementModalOpen(true);
+                                                            fetchStatement(row.code);
+                                                        }}
+                                                        className="py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg border border-blue-200 text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
+                                                    >
+                                                        <FileText className="w-4 h-4" />
+                                                        صورتحساب ریز
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => toggleExcludeTraz(row.code)}
+                                                        className={`py-2 rounded-lg border text-xs flex items-center justify-center gap-1 font-bold transition-colors cursor-pointer shadow-xs ${
+                                                            isExcluded 
+                                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' 
+                                                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-rose-50 hover:text-rose-700'
+                                                        }`}
+                                                    >
+                                                        {isExcluded ? <UserCheck className="w-4 h-4" /> : <UserX className="w-4 h-4 text-rose-500" />}
+                                                        <span>{isExcluded ? 'بازگردانی' : 'خروج از گزارش'}</span>
+                                                    </button>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))
+                                        );
+                                    })
                                 )}
                             </div>
                         </div>
@@ -4721,10 +5278,20 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                         <div className="mt-6 pt-4 border-t border-slate-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-3 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md p-3.5 sm:p-4 rounded-2xl shadow-xs">
                             <div className="flex items-center gap-2 text-xs font-black text-slate-700 dark:text-slate-200">
                                 <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
-                                <span>عملیات و اشتراک‌گذاری تراز اشخاص:</span>
+                                <span>عملیات و خروجی‌های تراز اشخاص:</span>
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+                                <button
+                                    type="button"
+                                    onClick={() => handleExportTrazExcel('both')}
+                                    className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-md shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer min-h-[44px]"
+                                    title="دانلود مستقیم فایل اکسل کامل تراز"
+                                >
+                                    <FileSpreadsheet className="w-4 h-4" />
+                                    <span>خروجی کامل اکسل (Excel)</span>
+                                </button>
+
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -4735,7 +5302,7 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                     title="تولید PDF تراز و ارسال به گفتگوی شخصی یا گروهی"
                                 >
                                     <Send className="w-4 h-4" />
-                                    <span>ارسال این گزارش به گفتگو (PDF)</span>
+                                    <span>ارسال به گفتگو (PDF)</span>
                                 </button>
 
                                 <button
@@ -4753,22 +5320,22 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                     title="تحلیل هوشمند تراز بدهکاران و بستانکاران با هوش مصنوعی"
                                 >
                                     <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
-                                    <span>تحلیل هوش مصنوعی تراز (AI)</span>
+                                    <span>تحلیل هوش مصنوعی (AI)</span>
                                 </button>
 
                                 <button 
                                     type="button"
                                     onClick={() => handlePrintTrazReport('bed')} 
-                                    className="flex items-center justify-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-xl border border-rose-200 text-xs font-bold transition-colors min-h-[44px]"
+                                    className="flex items-center justify-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-xl border border-rose-200 text-xs font-bold transition-colors min-h-[44px] cursor-pointer"
                                 >
-                                    <Printer className="w-3.5 h-3.5" /> خروجی PDF بدهکاران
+                                    <Printer className="w-3.5 h-3.5" /> PDF بدهکاران
                                 </button>
                                 <button 
                                     type="button"
                                     onClick={() => handlePrintTrazReport('bes')} 
-                                    className="flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl border border-emerald-200 text-xs font-bold transition-colors min-h-[44px]"
+                                    className="flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl border border-emerald-200 text-xs font-bold transition-colors min-h-[44px] cursor-pointer"
                                 >
-                                    <Printer className="w-3.5 h-3.5" /> خروجی PDF بستانکاران
+                                    <Printer className="w-3.5 h-3.5" /> PDF بستانکاران
                                 </button>
                             </div>
                         </div>

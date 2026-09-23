@@ -36,6 +36,9 @@ interface CustomCargoItem {
     dollars: number;
     statusBadge?: string;
     registrationNumber?: string;
+    rialAmount?: number;
+    petrochemicalName?: string;
+    paymentMethod?: string;
 }
 
 interface CommercialGoodItem {
@@ -89,6 +92,7 @@ export const WarehouseOverviewTab: React.FC = () => {
     const [goodsInTransit, setGoodsInTransit] = useState<CustomCargoItem[]>([]);
     const [goodsInCustoms, setGoodsInCustoms] = useState<CustomCargoItem[]>([]);
     const [purchasingGoods, setPurchasingGoods] = useState<CustomCargoItem[]>([]);
+    const [domesticPurchases, setDomesticPurchases] = useState<CustomCargoItem[]>([]);
     const [commercialGoods, setCommercialGoods] = useState<CommercialGoodItem[]>([]);
 
     // Dynamic category overrides for Sayan items
@@ -122,6 +126,7 @@ export const WarehouseOverviewTab: React.FC = () => {
     const baseTransitRef = useRef<CustomCargoItem[]>([]);
     const baseCustomsRef = useRef<CustomCargoItem[]>([]);
     const basePurchaseRef = useRef<CustomCargoItem[]>([]);
+    const baseDomesticRef = useRef<CustomCargoItem[]>([]);
 
     // Warehouse Bot Group Configurations from AppSettings
     const [warehouseTelegramGroupId, setWarehouseTelegramGroupId] = useState<string>('');
@@ -248,15 +253,69 @@ export const WarehouseOverviewTab: React.FC = () => {
         targetAllowedCompanies: string[],
         baseTransit: CustomCargoItem[],
         baseCustoms: CustomCargoItem[],
-        basePurchase: CustomCargoItem[]
+        basePurchase: CustomCargoItem[],
+        baseDomestic?: CustomCargoItem[]
     ) => {
         const activeTradeRecords = (trades || []).filter((r: any) => !r.isArchived && isCompanyMatching(r.company, targetAllowedCompanies));
 
         const parsedCommercialCustoms: CustomCargoItem[] = [];
         const parsedCommercialPurchaseAndTransit: CustomCargoItem[] = [];
+        const parsedCommercialDomesticPurchases: CustomCargoItem[] = [];
 
         for (const record of activeTradeRecords) {
             const isCompleted = record.status === 'Completed' || Boolean(record.isArchived);
+
+            // Check if record is domestic petrochemical bourse purchase
+            const isDomestic = record.purchaseType === 'domestic_bourse' || Boolean(record.petrochemicalData);
+
+            if (isDomestic) {
+                // If warehouse receipt confirmed or fully delivered to factory warehouse, exclude from pending pipeline
+                const isDelivered = Boolean(
+                    record.petrochemicalData?.warehouseReceipt?.isConfirmed ||
+                    record.petrochemicalData?.loadingNotice?.deliveryStatus === 'delivered_warehouse' ||
+                    isCompleted
+                );
+
+                if (isDelivered) {
+                    continue;
+                }
+
+                let badge = 'خرید نقدی بورس';
+                const pMethod = record.petrochemicalData?.paymentMethod;
+                if (pMethod === 'internal_lc') {
+                    badge = `LC داخلی (${record.petrochemicalData?.internalLc?.issuingBank || 'بانک'})`;
+                } else if (pMethod === 'draft_barat') {
+                    badge = `برات (${record.petrochemicalData?.draftBarat?.bankName || 'بانک'})`;
+                } else if (pMethod === 'bourse_salaf') {
+                    badge = 'سلف بورس کالا';
+                }
+
+                const loadingStatus = record.petrochemicalData?.loadingNotice?.deliveryStatus;
+                if (loadingStatus === 'dispatched' || loadingStatus === 'loaded') {
+                    badge += ' (بارگیری شده در راه)';
+                } else if (loadingStatus === 'draft') {
+                    badge += ' (صدور مجوز بارگیری)';
+                }
+
+                const petroWeight = Number(record.petrochemicalData?.quantityKg) || getRecordWeight(record) || 0;
+                const petroRial = Number(record.petrochemicalData?.totalInvoiceAmount) || (petroWeight * (Number(record.petrochemicalData?.basePricePerKg) || 0)) || 0;
+
+                parsedCommercialDomesticPurchases.push({
+                    id: `com_${record.id}`,
+                    cargoType: record.goodsName || record.petrochemicalData?.gradeName || 'خرید پتروشیمی',
+                    proforma: record.petrochemicalData?.proformaNumber || record.fileNumber || '',
+                    registrationNumber: record.petrochemicalData?.contractNumber || record.orderNumber || '',
+                    weight: petroWeight,
+                    cartons: getRecordCartons(record) || (petroWeight > 0 ? Math.round(petroWeight / 25) : 0),
+                    container: 0,
+                    dollars: 0,
+                    rialAmount: petroRial,
+                    statusBadge: badge,
+                    petrochemicalName: record.petrochemicalData?.petrochemicalName || record.sellerName || 'پتروشیمی',
+                    paymentMethod: pMethod
+                });
+                continue;
+            }
 
             // Check if record has Truck Freight Cost (هزینه حمل کامیون / تحویل به انبار)
             const hasTruckFreight = Boolean(
@@ -380,6 +439,13 @@ export const WarehouseOverviewTab: React.FC = () => {
             ...mergedBasePurchaseAndTransit,
             ...parsedCommercialPurchaseAndTransit
         ]);
+
+        const effectiveBaseDomestic = baseDomestic || baseDomesticRef.current || [];
+        setDomesticPurchases([
+            ...effectiveBaseDomestic.filter((x: any) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma))),
+            ...parsedCommercialDomesticPurchases
+        ]);
+
         setGoodsInTransit([]);
     };
 
@@ -537,13 +603,15 @@ export const WarehouseOverviewTab: React.FC = () => {
                 const loadedTransit: CustomCargoItem[] = (dbData.goodsInTransit || []).filter((x: any) => !x.id.startsWith('com_'));
                 const loadedCustoms: CustomCargoItem[] = (dbData.goodsInCustoms || []).filter((x: any) => !x.id.startsWith('com_'));
                 const loadedPurchase: CustomCargoItem[] = (dbData.purchasingGoods || []).filter((x: any) => !x.id.startsWith('com_'));
+                const loadedDomestic: CustomCargoItem[] = (dbData.domesticPurchases || []).filter((x: any) => !x.id.startsWith('com_'));
 
                 const mergedLoadedPurchaseAndTransit = [...loadedPurchase, ...loadedTransit];
                 baseTransitRef.current = [];
                 baseCustomsRef.current = loadedCustoms;
                 basePurchaseRef.current = mergedLoadedPurchaseAndTransit;
+                baseDomesticRef.current = loadedDomestic;
 
-                applyCommercialFilterAndMerge(tradeRecords, currentAllowedComps, [], loadedCustoms, mergedLoadedPurchaseAndTransit);
+                applyCommercialFilterAndMerge(tradeRecords, currentAllowedComps, [], loadedCustoms, mergedLoadedPurchaseAndTransit, loadedDomestic);
 
                 setCommercialGoods(dbData.commercialGoods || []);
                 setItemCategories(dbData.itemCategories || {});
@@ -659,6 +727,7 @@ export const WarehouseOverviewTab: React.FC = () => {
                 goodsInTransit: [],
                 goodsInCustoms: goodsInCustoms.filter(r => !r.id.startsWith('com_')),
                 purchasingGoods: purchasingGoods.filter(r => !r.id.startsWith('com_')),
+                domesticPurchases: domesticPurchases.filter(r => !r.id.startsWith('com_')),
                 commercialGoods,
                 itemCategories,
                 meta: {
@@ -1054,8 +1123,9 @@ export const WarehouseOverviewTab: React.FC = () => {
         const transit = calculateCustomTableSum(goodsInTransit, 'container');
         const customs = calculateCustomTableSum(goodsInCustoms, 'container');
         const purchase = calculateCustomTableSum(purchasingGoods, 'container');
-        return bg + transit + customs + purchase;
-    }, [goodsInTransit, goodsInCustoms, purchasingGoods, currentOverrides, alignedYarns, alignedImported]);
+        const domestic = calculateCustomTableSum(domesticPurchases, 'container');
+        return bg + transit + customs + purchase + domestic;
+    }, [goodsInTransit, goodsInCustoms, purchasingGoods, domesticPurchases, currentOverrides, alignedYarns, alignedImported]);
 
     const totalLastYearDollars = useMemo(() => {
         return calculateTotalSayanSum(true, 'dollars');
@@ -1066,8 +1136,9 @@ export const WarehouseOverviewTab: React.FC = () => {
         const transit = calculateCustomTableSum(goodsInTransit, 'dollars');
         const customs = calculateCustomTableSum(goodsInCustoms, 'dollars');
         const purchase = calculateCustomTableSum(purchasingGoods, 'dollars');
-        return bg + transit + customs + purchase;
-    }, [goodsInTransit, goodsInCustoms, purchasingGoods, currentOverrides, alignedYarns, alignedImported]);
+        const domestic = calculateCustomTableSum(domesticPurchases, 'dollars');
+        return bg + transit + customs + purchase + domestic;
+    }, [goodsInTransit, goodsInCustoms, purchasingGoods, domesticPurchases, currentOverrides, alignedYarns, alignedImported]);
 
     // Difference and ratio formulas matching the PDF
     const diffContainers = totalCurrentContainers - totalLastYearContainers;
@@ -1092,7 +1163,7 @@ export const WarehouseOverviewTab: React.FC = () => {
     const ratioYarnsWeight = totalLastYearYarnsWeight > 0 ? (diffYarnsWeight / totalLastYearYarnsWeight) * 100 : 0;
     const isYarnsDownward = diffYarnsWeight < 0;
 
-    // 2. Raw Materials & Imported Goods (مواد اولیه و واردات شامل انبار + گمرک + ترانزیت + خرید)
+    // 2. Raw Materials & Imported Goods (مواد اولیه و واردات شامل انبار + گمرک + ترانزیت + خرید داخلی و خارجی)
     const totalLastYearRawWeight = useMemo(() => {
         return alignedImported.reduce((sum, item) => sum + getItemValue(item.code, true, 'weight', true), 0);
     }, [alignedImported, lastYearOverrides, sayanLastYear]);
@@ -1102,8 +1173,9 @@ export const WarehouseOverviewTab: React.FC = () => {
         const transit = calculateCustomTableSum(goodsInTransit, 'weight');
         const customs = calculateCustomTableSum(goodsInCustoms, 'weight');
         const purchase = calculateCustomTableSum(purchasingGoods, 'weight');
-        return bg + transit + customs + purchase;
-    }, [alignedImported, goodsInTransit, goodsInCustoms, purchasingGoods, currentOverrides, sayanCurrent]);
+        const domestic = calculateCustomTableSum(domesticPurchases, 'weight');
+        return bg + transit + customs + purchase + domestic;
+    }, [alignedImported, goodsInTransit, goodsInCustoms, purchasingGoods, domesticPurchases, currentOverrides, sayanCurrent]);
 
     const diffRawWeight = totalCurrentRawWeight - totalLastYearRawWeight;
     const ratioRawWeight = totalLastYearRawWeight > 0 ? (diffRawWeight / totalLastYearRawWeight) * 100 : 0;
@@ -1206,6 +1278,25 @@ export const WarehouseOverviewTab: React.FC = () => {
             });
         });
 
+        // Add Domestic & Petrochemical Bourse Purchases (خریدهای داخلی پتروشیمی و بورس کالا)
+        domesticPurchases.forEach((item, idx) => {
+            const wCurr = parseFloat(String(item.weight || 0)) || 0;
+            const wLast = 0;
+            const diff = wCurr - wLast;
+            const ratio = wCurr > 0 ? 100 : (wCurr < 0 ? -100 : 0);
+            list.push({
+                code: item.proforma ? `PETRO-${item.proforma}` : `PETRO-${idx + 1}`,
+                name: `${item.cargoType || 'خرید پتروشیمی'}${item.petrochemicalName ? ` - ${item.petrochemicalName}` : ''}${item.statusBadge ? ` [${item.statusBadge}]` : ''}`,
+                category: 'domestic',
+                categoryLabel: 'خریدهای داخلی پتروشیمی و بورس',
+                lastYearWeight: wLast,
+                currentWeight: wCurr,
+                diffWeight: diff,
+                ratio,
+                isNegative: diff < 0 || wCurr < 0
+            });
+        });
+
         // Add Commercial Warehouse Goods (کالای تجاری / متفرقه)
         commercialGoods.forEach((item, idx) => {
             const wCurr = parseFloat(String(item.weight || 0)) || 0;
@@ -1226,7 +1317,7 @@ export const WarehouseOverviewTab: React.FC = () => {
         });
 
         return list;
-    }, [alignedYarns, alignedImported, goodsInTransit, goodsInCustoms, purchasingGoods, commercialGoods, lastYearOverrides, currentOverrides, sayanLastYear, sayanCurrent]);
+    }, [alignedYarns, alignedImported, goodsInTransit, goodsInCustoms, purchasingGoods, domesticPurchases, commercialGoods, lastYearOverrides, currentOverrides, sayanLastYear, sayanCurrent]);
 
     // Negative Items (کالاهای منفی / دارای کاهش وزنی یا موجودی منفی)
     const negativeItems = useMemo(() => {
@@ -1303,6 +1394,18 @@ export const WarehouseOverviewTab: React.FC = () => {
                 category: 'purchasing',
                 categoryLabel: 'بارهای در حال خرید و در راه',
                 status: r.statusBadge || 'در حال خرید / در راه'
+            })),
+            ...domesticPurchases.map(r => ({
+                ...r,
+                name: `${r.cargoType}${r.petrochemicalName ? ` (${r.petrochemicalName})` : ''}`,
+                containers: r.container,
+                proforma: r.proforma || '',
+                registrationNumber: r.registrationNumber || '',
+                currentValue: r.weight ? `${r.weight.toLocaleString('fa-IR')} kg` : `${(r.rialAmount || 0).toLocaleString('fa-IR')} ریال`,
+                currency: 'IRR',
+                category: 'domestic',
+                categoryLabel: 'خریدهای داخلی پتروشیمی و بورس',
+                status: r.statusBadge || 'خرید پتروشیمی'
             })),
             ...commercialGoods.map(r => ({
                 ...r,
@@ -1576,16 +1679,19 @@ export const WarehouseOverviewTab: React.FC = () => {
     };
 
     // CRUD custom tables helpers
-    const addCustomRow = (type: 'transit' | 'customs' | 'purchase') => {
+    const addCustomRow = (type: 'transit' | 'customs' | 'purchase' | 'domestic') => {
         const newRow: CustomCargoItem = {
             id: 'cargo_' + Date.now() + Math.random().toString(36).substr(2, 4),
-            cargoType: 'نخ جدید',
+            cargoType: type === 'domestic' ? 'پلی‌پروپیلن / چیپس نساجی' : 'نخ جدید',
             proforma: '',
             registrationNumber: '',
             weight: 0,
             cartons: 0,
             container: 0,
-            dollars: 0
+            dollars: 0,
+            rialAmount: 0,
+            petrochemicalName: type === 'domestic' ? 'پتروشیمی' : '',
+            statusBadge: type === 'domestic' ? 'خرید بورس' : ''
         };
         if (type === 'transit' || type === 'purchase') {
             const next = [...purchasingGoods, newRow];
@@ -1597,9 +1703,14 @@ export const WarehouseOverviewTab: React.FC = () => {
             setGoodsInCustoms(next);
             baseCustomsRef.current = next.filter(r => !r.id.startsWith('com_'));
         }
+        if (type === 'domestic') {
+            const next = [...domesticPurchases, newRow];
+            setDomesticPurchases(next);
+            baseDomesticRef.current = next.filter(r => !r.id.startsWith('com_'));
+        }
     };
 
-    const deleteCustomRow = (type: 'transit' | 'customs' | 'purchase', id: string) => {
+    const deleteCustomRow = (type: 'transit' | 'customs' | 'purchase' | 'domestic', id: string) => {
         if (type === 'transit' || type === 'purchase') {
             const next = purchasingGoods.filter(r => r.id !== id);
             setPurchasingGoods(next);
@@ -1610,11 +1721,17 @@ export const WarehouseOverviewTab: React.FC = () => {
             setGoodsInCustoms(next);
             baseCustomsRef.current = next.filter(r => !r.id.startsWith('com_'));
         }
+        if (type === 'domestic') {
+            const next = domesticPurchases.filter(r => r.id !== id);
+            setDomesticPurchases(next);
+            baseDomesticRef.current = next.filter(r => !r.id.startsWith('com_'));
+        }
     };
 
-    const updateCustomCell = (type: 'transit' | 'customs' | 'purchase', id: string, field: string, value: any) => {
-        const list = type === 'customs' ? goodsInCustoms : purchasingGoods;
-        const next = list.map(r => r.id === id ? { ...r, [field]: field === 'cargoType' || field === 'proforma' || field === 'registrationNumber' ? value : parseFloat(value || '0') } : r);
+    const updateCustomCell = (type: 'transit' | 'customs' | 'purchase' | 'domestic', id: string, field: string, value: any) => {
+        const list = type === 'customs' ? goodsInCustoms : (type === 'domestic' ? domesticPurchases : purchasingGoods);
+        const stringFields = ['cargoType', 'proforma', 'registrationNumber', 'petrochemicalName', 'statusBadge', 'paymentMethod'];
+        const next = list.map(r => r.id === id ? { ...r, [field]: stringFields.includes(field) ? value : parseFloat(value || '0') } : r);
 
         if (type === 'transit' || type === 'purchase') {
             setPurchasingGoods(next);
@@ -1623,6 +1740,10 @@ export const WarehouseOverviewTab: React.FC = () => {
         if (type === 'customs') {
             setGoodsInCustoms(next);
             baseCustomsRef.current = next.filter(r => !r.id.startsWith('com_'));
+        }
+        if (type === 'domestic') {
+            setDomesticPurchases(next);
+            baseDomesticRef.current = next.filter(r => !r.id.startsWith('com_'));
         }
     };
 
@@ -2961,6 +3082,188 @@ export const WarehouseOverviewTab: React.FC = () => {
                                         <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(purchasingGoods, 'cartons').toLocaleString('fa-IR')}</td>
                                         <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(purchasingGoods, 'container').toLocaleString('fa-IR')}</td>
                                         <td className="py-3 px-2 font-mono !text-emerald-300 font-bold" style={{ color: '#6ee7b7', fontWeight: 900 }}>${calculateCustomTableSum(purchasingGoods, 'dollars').toLocaleString('en-US')}</td>
+                                        {isEditMode && <td></td>}
+                                    </tr>
+                                </tfoot>
+                            )}
+                        </table>
+                    </div>
+                </div>
+
+                {/* C. DOMESTIC & PETROCHEMICAL BOURSE PURCHASES (خریدهای داخلی پتروشیمی و بورس کالا - ال‌سی داخلی / برات / نقدی) */}
+                <div id="section-domestic" className="bg-white rounded-none sm:rounded-2xl border-y sm:border border-slate-200 overflow-hidden shadow-sm scroll-mt-28 w-full">
+                    <div className="p-4 bg-emerald-900 text-white flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <h4 className="font-extrabold text-sm sm:text-base">خریدهای داخلی، پتروشیمی و بورس کالا (LC داخلی / برات / نقدی)</h4>
+                            <span className="text-[11px] bg-emerald-800/80 px-2 py-0.5 rounded text-emerald-200 hidden sm:inline">
+                                بارهای خریداری شده از بورس کالا و پتروشیمی‌ها (تسهیلات ال‌سی، برات یا نقدی در راه انبار کارخانه)
+                            </span>
+                        </div>
+                        {isEditMode && (
+                            <button
+                                onClick={() => addCustomRow('domestic')}
+                                className="bg-emerald-700 hover:bg-emerald-600 text-white rounded px-3 py-1 text-xs font-bold transition-all flex items-center gap-1"
+                            >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>افزودن خرید جدید</span>
+                            </button>
+                        )}
+                    </div>
+
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[720px] text-xs text-center border-collapse">
+                            <thead>
+                                <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                                    <th className="py-3 px-3 text-right whitespace-nowrap">گرید کالا / پتروشیمی</th>
+                                    <th className="py-3 px-2 whitespace-nowrap">پیش‌فاکتور / قرارداد بورس</th>
+                                    <th className="py-3 px-2 whitespace-nowrap">شناسه عرضه / پیگیری</th>
+                                    <th className="py-3 px-2 whitespace-nowrap">وزن (kg)</th>
+                                    <th className="py-3 px-2 whitespace-nowrap">کارتن / کیسه</th>
+                                    <th className="py-3 px-2 whitespace-nowrap">روش تسویه (LC / برات / نقدی)</th>
+                                    <th className="py-3 px-2 whitespace-nowrap">ارزش ریالی (ریال)</th>
+                                    {isEditMode && <th className="py-3 px-2 whitespace-nowrap">عملیات</th>}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {domesticPurchases.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={isEditMode ? 8 : 7} className="py-6 text-center text-slate-400 font-medium">هیچ خرید داخلی پتروشیمی در حال جریان ثبت نشده است.</td>
+                                    </tr>
+                                ) : (
+                                    domesticPurchases.map((item) => {
+                                        const isCommercial = item.id.startsWith('com_');
+                                        return (
+                                            <tr key={item.id} className="hover:bg-slate-50 text-slate-700">
+                                                <td className="py-2.5 px-3 text-right font-bold flex items-center gap-1.5 flex-wrap">
+                                                    {isEditMode && !isCommercial ? (
+                                                        <div className="w-full space-y-1">
+                                                            <input 
+                                                                type="text" 
+                                                                value={item.cargoType} 
+                                                                onChange={(e) => updateCustomCell('domestic', item.id, 'cargoType', e.target.value)}
+                                                                className="w-full py-1 px-2 border rounded border-slate-200 focus:outline-none"
+                                                                placeholder="نام کالا / گرید"
+                                                            />
+                                                            <input 
+                                                                type="text" 
+                                                                value={item.petrochemicalName || ''} 
+                                                                onChange={(e) => updateCustomCell('domestic', item.id, 'petrochemicalName', e.target.value)}
+                                                                className="w-full py-0.5 px-2 text-[11px] border rounded border-slate-200 focus:outline-none text-emerald-800"
+                                                                placeholder="پتروشیمی / کارگزاری"
+                                                            />
+                                                        </div>
+                                                    ) : (
+                                                        <span className="flex items-center gap-1.5 flex-wrap">
+                                                            <span className="font-bold text-slate-900">{item.cargoType}</span>
+                                                            {item.petrochemicalName && (
+                                                                <span className="bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded font-bold">
+                                                                    {item.petrochemicalName}
+                                                                </span>
+                                                            )}
+                                                            {item.statusBadge && (
+                                                                <span className="bg-blue-50 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-md border border-blue-200 font-bold font-sans">
+                                                                    {item.statusBadge}
+                                                                </span>
+                                                            )}
+                                                            {isCommercial && !item.statusBadge && (
+                                                                <span className="bg-teal-50 text-teal-700 text-[10px] px-1.5 py-0.5 rounded-md border border-teal-200 font-bold font-sans">
+                                                                    پرونده بازرگانی
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="py-2.5 px-2">
+                                                    {isEditMode && !isCommercial ? (
+                                                        <input 
+                                                            type="text" 
+                                                            value={item.proforma} 
+                                                            onChange={(e) => updateCustomCell('domestic', item.id, 'proforma', e.target.value)}
+                                                            className="w-full text-center py-1 px-2 border rounded border-slate-200 focus:outline-none font-mono"
+                                                            placeholder="پیش‌فاکتور"
+                                                        />
+                                                    ) : item.proforma || '-'}
+                                                </td>
+                                                <td className="py-2.5 px-2">
+                                                    {isEditMode && !isCommercial ? (
+                                                        <input 
+                                                            type="text" 
+                                                            value={item.registrationNumber || ''} 
+                                                            onChange={(e) => updateCustomCell('domestic', item.id, 'registrationNumber', e.target.value)}
+                                                            className="w-full text-center py-1 px-2 border rounded border-slate-200 focus:outline-none font-mono"
+                                                            placeholder="شماره قرارداد/عرضه"
+                                                        />
+                                                    ) : item.registrationNumber || '-'}
+                                                </td>
+                                                <td className="py-2.5 px-2 font-mono font-bold">
+                                                    {isEditMode && !isCommercial ? (
+                                                        <input 
+                                                            type="number" 
+                                                            value={item.weight} 
+                                                            onChange={(e) => updateCustomCell('domestic', item.id, 'weight', e.target.value)}
+                                                            className="w-28 text-center py-1 px-2 border rounded border-slate-200 font-mono"
+                                                        />
+                                                    ) : item.weight.toLocaleString('fa-IR')}
+                                                </td>
+                                                <td className="py-2.5 px-2 font-mono">
+                                                    {isEditMode && !isCommercial ? (
+                                                        <input 
+                                                            type="number" 
+                                                            value={item.cartons} 
+                                                            onChange={(e) => updateCustomCell('domestic', item.id, 'cartons', e.target.value)}
+                                                            className="w-24 text-center py-1 px-2 border rounded border-slate-200 font-mono"
+                                                        />
+                                                    ) : item.cartons.toLocaleString('fa-IR')}
+                                                </td>
+                                                <td className="py-2.5 px-2">
+                                                    {isEditMode && !isCommercial ? (
+                                                        <input 
+                                                            type="text" 
+                                                            value={item.statusBadge || ''} 
+                                                            onChange={(e) => updateCustomCell('domestic', item.id, 'statusBadge', e.target.value)}
+                                                            className="w-28 text-center py-1 px-2 border rounded border-slate-200 text-xs"
+                                                            placeholder="LC / برات / نقدی"
+                                                        />
+                                                    ) : (
+                                                        <span className="font-medium text-slate-600">{item.statusBadge || 'نقدی بورس'}</span>
+                                                    )}
+                                                </td>
+                                                <td className="py-2.5 px-2 font-mono font-bold text-emerald-700">
+                                                    {isEditMode && !isCommercial ? (
+                                                        <input 
+                                                            type="number" 
+                                                            value={item.rialAmount || 0} 
+                                                            onChange={(e) => updateCustomCell('domestic', item.id, 'rialAmount', e.target.value)}
+                                                            className="w-32 text-center py-1 px-2 border rounded border-slate-200 font-mono"
+                                                            placeholder="مبلغ کل ریالی"
+                                                        />
+                                                    ) : `${(item.rialAmount || 0).toLocaleString('fa-IR')} ریال`}
+                                                </td>
+                                                {isEditMode && (
+                                                    <td className="py-2.5 px-2">
+                                                        {!isCommercial && (
+                                                            <button 
+                                                                onClick={() => deleteCustomRow('domestic', item.id)}
+                                                                className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 transition-all"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </td>
+                                                )}
+                                            </tr>
+                                        );
+                                    })
+                                )}
+                            </tbody>
+                            {domesticPurchases.length > 0 && (
+                                <tfoot>
+                                    <tr className="bg-emerald-950 !text-white font-extrabold border-t-2 border-emerald-800" style={{ backgroundColor: '#064e3b' }}>
+                                        <td className="py-3 px-3 text-right !text-white font-bold" style={{ color: '#ffffff', fontWeight: 900 }} colSpan={3}>جمع کل خریدهای داخلی و پتروشیمی (بورس کالا)</td>
+                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(domesticPurchases, 'weight').toLocaleString('fa-IR')}</td>
+                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(domesticPurchases, 'cartons').toLocaleString('fa-IR')}</td>
+                                        <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>-</td>
+                                        <td className="py-3 px-2 font-mono !text-emerald-300 font-bold" style={{ color: '#6ee7b7', fontWeight: 900 }}>{(domesticPurchases.reduce((s, r) => s + (r.rialAmount || 0), 0)).toLocaleString('fa-IR')} ریال</td>
                                         {isEditMode && <td></td>}
                                     </tr>
                                 </tfoot>

@@ -259,6 +259,108 @@ import { getUsers } from "../services/authService";
 import { generateUUID, getCurrentShamsiDate } from "../constants";
 import { shareElementToChat, openSendToChat } from "../services/chatShareService";
 
+
+interface SafeOnlyOfficeEditorProps {
+  id: string;
+  documentServerUrl: string;
+  config: any;
+  events_onDocumentReady?: () => void;
+  events_onError?: (event: any) => void;
+  onLoadComponentError?: (errorCode: number, description: string) => void;
+}
+
+const SafeOnlyOfficeEditor: React.FC<SafeOnlyOfficeEditorProps> = ({
+  id,
+  documentServerUrl,
+  config,
+  events_onDocumentReady,
+  events_onError,
+  onLoadComponentError,
+}) => {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const editorInstanceRef = React.useRef<any>(null);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    const cleanUrl = (documentServerUrl || '').trim().replace(/\/+$/, '');
+    const scriptUrl = cleanUrl + '/web-apps/apps/api/documents/api.js';
+
+    const initEditor = () => {
+      if (!isMounted || !containerRef.current) return;
+      if (editorInstanceRef.current && typeof editorInstanceRef.current.destroyEditor === 'function') {
+        try {
+          editorInstanceRef.current.destroyEditor();
+        } catch (e) {
+          console.warn('Error destroying editor:', e);
+        }
+        editorInstanceRef.current = null;
+      }
+
+      containerRef.current.innerHTML = '';
+      const holder = document.createElement('div');
+      holder.id = id + '_' + Date.now();
+      holder.style.width = '100%';
+      holder.style.height = '100%';
+      containerRef.current.appendChild(holder);
+
+      try {
+        const DocsAPI = (window as any).DocsAPI;
+        if (DocsAPI && typeof DocsAPI.DocEditor === 'function') {
+          const fullConfig = {
+            ...config,
+            events: {
+              ...config.events,
+              onDocumentReady: () => {
+                if (isMounted) events_onDocumentReady?.();
+              },
+              onError: (err: any) => {
+                if (isMounted) events_onError?.(err);
+              },
+            },
+          };
+          editorInstanceRef.current = new DocsAPI.DocEditor(holder.id, fullConfig);
+        } else {
+          onLoadComponentError?.(-1, 'DocsAPI not initialized');
+        }
+      } catch (err: any) {
+        console.error('Failed to init DocsAPI.DocEditor:', err);
+        onLoadComponentError?.(-2, err?.message || 'Error creating DocsAPI');
+      }
+    };
+
+    const existingScript = document.querySelector('script[src="' + scriptUrl + '"]');
+    if (existingScript && (window as any).DocsAPI) {
+      initEditor();
+    } else {
+      const script = document.createElement('script');
+      script.src = scriptUrl;
+      script.async = true;
+      script.onload = () => {
+        if (isMounted) initEditor();
+      };
+      script.onerror = () => {
+        if (isMounted) onLoadComponentError?.(-3, 'خطا در بارگذاری اسکریپت ONLYOFFICE');
+      };
+      document.body.appendChild(script);
+    }
+
+    return () => {
+      isMounted = false;
+      if (editorInstanceRef.current && typeof editorInstanceRef.current.destroyEditor === 'function') {
+        try {
+          editorInstanceRef.current.destroyEditor();
+        } catch (e) {}
+        editorInstanceRef.current = null;
+      }
+      if (containerRef.current) {
+        containerRef.current.innerHTML = '';
+      }
+    };
+  }, [id, documentServerUrl, config?.document?.key]);
+
+  return <div ref={containerRef} className="w-full h-full relative" style={{ minHeight: '500px' }} />;
+};
+
 const toPersianDigits = (str: string | number | undefined | null): string => {
   if (str === undefined || str === null) return "";
   const englishDigits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
@@ -6374,7 +6476,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                             </div>
                           ) : onlyOfficeDocKey && onlyOfficeFileUrl ? (
                             <div className="w-full h-full relative">
-                              <DocumentEditor
+                              <SafeOnlyOfficeEditor
                                 id="onlyoffice-docx-editor"
                                 documentServerUrl={onlyOfficeDocServerUrl}
                                 config={{
@@ -6638,7 +6740,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                           </div>
                           <div className="flex-1 w-full h-full relative bg-slate-900">
                             {onlyOfficeDocKey && onlyOfficeFileUrl ? (
-                              <DocumentEditor
+                              <SafeOnlyOfficeEditor
                                 id="onlyoffice-split-editor"
                                 documentServerUrl={onlyOfficeDocServerUrl}
                                 config={{

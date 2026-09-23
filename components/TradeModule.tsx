@@ -88,6 +88,16 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
     const [newPurchaseType, setNewPurchaseType] = useState<'import' | 'domestic_bourse'>('import');
     const [purchaseTypeFilter, setPurchaseTypeFilter] = useState<'all' | 'import' | 'domestic_bourse'>('all');
 
+    // Domestic Petrochemical / Bourse specific modal fields
+    const [newDomesticContractNumber, setNewDomesticContractNumber] = useState('');
+    const [newDomesticRemittanceNumber, setNewDomesticRemittanceNumber] = useState('');
+    const [newDomesticProformaNumber, setNewDomesticProformaNumber] = useState('');
+    const [newDomesticBroker, setNewDomesticBroker] = useState('کارگزاری بورس کالا');
+    const [newDomesticQuantityKgStr, setNewDomesticQuantityKgStr] = useState('50,000');
+    const [newDomesticPaymentMethod, setNewDomesticPaymentMethod] = useState<'internal_lc' | 'cash' | 'draft_barat' | 'bourse_salaf'>('internal_lc');
+    const [newDomesticDealDate, setNewDomesticDealDate] = useState('');
+    const [newDomesticUnitPriceStr, setNewDomesticUnitPriceStr] = useState('');
+
     const [showTransferModal, setShowTransferModal] = useState(false);
     const [transferForm, setTransferForm] = useState({ targetCommodityGroup: '', newFileNumber: '', newGoodsName: '', newSellerName: '', description: '' });
     
@@ -657,6 +667,185 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
     };
 
     const handleCreateRecord = async () => { 
+        if (newPurchaseType === 'domestic_bourse') {
+            const contractNo = (newDomesticContractNumber || '').trim();
+            const remitNo = (newDomesticRemittanceNumber || '').trim();
+            const petroProfNo = (newDomesticProformaNumber || '').trim();
+            const fileNo = (newFileNumberDirect || '').trim();
+            const goods = (newGoodsName || '').trim();
+            const seller = (newSellerName || '').trim() || 'پتروشیمی شهید تندگویان';
+            const company = (newRecordCompany || '').trim();
+            const quantityKg = deformatNumberString(newDomesticQuantityKgStr) || 50000;
+            const unitPrice = deformatNumberString(newDomesticUnitPriceStr) || 0;
+
+            if (!goods || !company) {
+                alert('لطفاً نام کالا و شرکت مربوطه را انتخاب و وارد نمایید.');
+                return;
+            }
+
+            if (!contractNo && !petroProfNo && !fileNo) {
+                alert('لطفاً شماره قرارداد / معامله بورس کالا یا شماره پیش‌فاکتور را وارد نمایید.');
+                return;
+            }
+
+            const primaryNumber = contractNo || petroProfNo || fileNo || generateUUID().slice(0, 8);
+            const finalFileNumber = fileNo || `DOM-${primaryNumber}`;
+
+            if (isDuplicateTradeRecord(company, finalFileNumber, contractNo, goods, undefined, petroProfNo)) {
+                alert('خطا: پرونده دیگری با همین مشخصات (نام شرکت، شماره قرارداد یا پروفرما و نام کالا) قبلاً ثبت شده است.');
+                return;
+            }
+
+            const totalGoodsPrice = quantityKg * unitPrice;
+            const vatAmount = Math.round(totalGoodsPrice * 0.1);
+            const brokerageFee = Math.round(totalGoodsPrice * 0.003);
+            const totalInvoiceAmount = totalGoodsPrice + vatAmount + brokerageFee;
+
+            const newRecord: TradeRecord = {
+                id: generateUUID(),
+                company: company,
+                fileNumber: finalFileNumber,
+                proformaNumber: petroProfNo || contractNo,
+                orderNumber: contractNo,
+                goodsName: goods,
+                registrationNumber: contractNo,
+                sellerName: seller,
+                commodityGroup: newCommodityGroup || 'مواد اولیه پتروشیمی',
+                mainCurrency: 'IRR',
+                purchaseType: 'domestic_bourse',
+                items: [{
+                    id: generateUUID(),
+                    name: goods,
+                    weight: quantityKg,
+                    grossWeight: quantityKg,
+                    unitPrice: unitPrice,
+                    totalPrice: totalGoodsPrice,
+                    currency: 'IRR'
+                }],
+                freightCost: 0,
+                startDate: newDomesticDealDate || new Date().toISOString().split('T')[0],
+                status: 'Active',
+                isInTransit: false,
+                isInCustoms: false,
+                stages: {},
+                createdAt: Date.now(),
+                createdBy: currentUser.fullName,
+                licenseData: { transactions: [] },
+                shippingDocuments: [],
+                petrochemicalData: {
+                    petrochemicalName: seller,
+                    brokerName: newDomesticBroker || 'کارگزاری بورس کالا',
+                    contractNumber: contractNo,
+                    offeringCode: '',
+                    proformaNumber: petroProfNo || contractNo,
+                    proformaDate: newDomesticDealDate || new Date().toISOString().split('T')[0],
+                    paymentMethod: newDomesticPaymentMethod || 'internal_lc',
+                    gradeName: goods,
+                    quantityKg: quantityKg,
+                    basePricePerKg: unitPrice,
+                    competitionPercent: 0,
+                    totalGoodsPrice: totalGoodsPrice,
+                    vatAmount: vatAmount,
+                    brokerageFee: brokerageFee,
+                    otherFees: 0,
+                    totalInvoiceAmount: totalInvoiceAmount,
+                    bourseSettlementDeadline: '',
+                    cashSettlement: {
+                        isSettled: newDomesticPaymentMethod === 'cash',
+                        settlementDate: '',
+                        payments: []
+                    },
+                    internalLc: {
+                        lcNumber: '',
+                        issuingBank: 'بانک تجارت',
+                        branch: 'شعبه مرکزی',
+                        branchCode: '',
+                        lcType: 'sight',
+                        usanceDays: 90,
+                        issueDate: '',
+                        dueDate: '',
+                        lcAmount: totalInvoiceAmount,
+                        prepaymentAmount: 0,
+                        prepaymentPercent: 10,
+                        collateralDesc: '',
+                        commissionFee: 0,
+                        status: 'draft'
+                    },
+                    draftBarat: {
+                        baratNumber: '',
+                        sepamCode: '',
+                        bankName: 'بانک ملت',
+                        branchName: '',
+                        issueDate: '',
+                        dueDate: '',
+                        tenorDays: 90,
+                        amount: totalInvoiceAmount,
+                        drawerName: company,
+                        draweeName: seller,
+                        beneficiaryName: seller,
+                        status: 'draft'
+                    },
+                    loadingNotice: {
+                        remittanceNumber: remitNo,
+                        remittanceDate: '',
+                        behenyabCode: '',
+                        loadingTerminal: '',
+                        transportCompany: '',
+                        driverName: '',
+                        driverPhone: '',
+                        driverNationalCode: '',
+                        truckPlate: '',
+                        waybillNumber: '',
+                        freightCostRial: 0,
+                        loadingDate: '',
+                        deliveryStatus: 'pending_loading'
+                    },
+                    warehouseReceipt: {
+                        receiptNumber: '',
+                        weighbridgeSlipNumber: '',
+                        receivedWeightKg: 0,
+                        receiptDate: '',
+                        warehouseName: 'انبار مرکزی مواد اولیه کارخانه',
+                        qcStatus: 'pending'
+                    }
+                }
+            };
+
+            STAGES.forEach(stage => { 
+                newRecord.stages[stage] = { 
+                    stage, 
+                    isCompleted: false, 
+                    description: '', 
+                    costRial: 0, 
+                    costCurrency: 0, 
+                    currencyType: 'IRR', 
+                    attachments: [], 
+                    updatedAt: Date.now(), 
+                    updatedBy: '' 
+                }; 
+            });
+
+            await saveTradeRecord(newRecord); 
+            await loadRecords(); 
+            setShowNewModal(false); 
+            // Reset Domestic fields
+            setNewDomesticContractNumber('');
+            setNewDomesticRemittanceNumber('');
+            setNewDomesticProformaNumber('');
+            setNewDomesticBroker('کارگزاری بورس کالا');
+            setNewDomesticQuantityKgStr('50,000');
+            setNewDomesticUnitPriceStr('');
+            setNewGoodsName(''); 
+            setNewSellerName('');
+            setNewCommodityGroup('');
+            setNewRecordCompany('');
+            setNewFileNumberDirect('');
+            setSelectedRecord(newRecord); 
+            setActiveTab('domestic_petrochemical'); 
+            setViewMode('details'); 
+            return;
+        }
+
         const proformaNo = (newProformaNumber || '').trim();
         const fileNo = (newFileNumberDirect || newFileNumber || '').trim();
         const regNo = (newRegistrationNumber || '').trim();
@@ -690,8 +879,8 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
             registrationNumber: regNo, 
             sellerName: newSellerName, 
             commodityGroup: newCommodityGroup, 
-            mainCurrency: newPurchaseType === 'domestic_bourse' ? 'IRR' : newMainCurrency, 
-            purchaseType: newPurchaseType,
+            mainCurrency: newMainCurrency, 
+            purchaseType: 'import',
             items: [], 
             freightCost: 0, 
             startDate: new Date().toISOString(), 
@@ -705,66 +894,6 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
             shippingDocuments: [] 
         }; 
 
-        if (newPurchaseType === 'domestic_bourse') {
-            newRecord.petrochemicalData = {
-                petrochemicalName: newSellerName || 'پتروشیمی شهید تندگویان',
-                brokerName: 'کارگزاری بورس کالا',
-                contractNumber: regNo || proformaNo || '',
-                proformaNumber: proformaNo || '',
-                proformaDate: new Date().toISOString().split('T')[0],
-                paymentMethod: 'internal_lc',
-                gradeName: newGoodsName || 'چیپس پلی استر نساجی TG642',
-                quantityKg: 50000,
-                basePricePerKg: 0,
-                totalGoodsPrice: 0,
-                vatAmount: 0,
-                brokerageFee: 0,
-                totalInvoiceAmount: 0,
-                internalLc: {
-                    lcNumber: '',
-                    issuingBank: 'بانک تجارت',
-                    branch: 'شعبه مرکزی',
-                    issueDate: '',
-                    dueDate: '',
-                    lcAmount: 0,
-                    prepaymentAmount: 0,
-                    collateralDesc: '',
-                    commissionFee: 0,
-                    status: 'draft'
-                },
-                draftBarat: {
-                    baratNumber: '',
-                    sepamCode: '',
-                    bankName: 'بانک ملت',
-                    issueDate: '',
-                    dueDate: '',
-                    amount: 0,
-                    drawerName: newRecordCompany,
-                    draweeName: newSellerName || 'پتروشیمی',
-                    status: 'draft'
-                },
-                loadingNotice: {
-                    remittanceNumber: '',
-                    behenyabCode: '',
-                    driverName: '',
-                    driverPhone: '',
-                    driverNationalCode: '',
-                    truckPlate: '',
-                    waybillNumber: '',
-                    freightCostRial: 0,
-                    loadingDate: '',
-                    deliveryStatus: 'pending_loading'
-                },
-                warehouseReceipt: {
-                    receiptNumber: '',
-                    receivedWeightKg: 0,
-                    receiptDate: '',
-                    warehouseName: 'انبار مرکزی مواد اولیه کارخانه',
-                    isConfirmed: false
-                }
-            };
-        }
-        
         STAGES.forEach(stage => { 
             newRecord.stages[stage] = { 
                 stage, 
@@ -772,7 +901,7 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                 description: '', 
                 costRial: 0, 
                 costCurrency: 0, 
-                currencyType: newPurchaseType === 'domestic_bourse' ? 'IRR' : newMainCurrency, 
+                currencyType: newMainCurrency, 
                 attachments: [], 
                 updatedAt: Date.now(), 
                 updatedBy: '' 
@@ -793,7 +922,7 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
         setNewRecordCompany('');
         setNewPurchaseType('import');
         setSelectedRecord(newRecord); 
-        setActiveTab(newPurchaseType === 'domestic_bourse' ? 'domestic_petrochemical' : 'proforma'); 
+        setActiveTab('proforma'); 
         setViewMode('details'); 
     };
 
@@ -5540,60 +5669,241 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                             </button>
                         </div>
 
-                        <div className="space-y-4 text-gray-800 dark:text-gray-200">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-1.5">
-                                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">شماره پروفرم</label>
-                                    <input className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-left dir-ltr text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newProformaNumber} onChange={e => setNewProformaNumber(e.target.value)} placeholder="مثال: PI-1403-01 یا 2024-99..." />
+                        {newPurchaseType === 'domestic_bourse' ? (
+                            <div className="space-y-4 text-gray-800 dark:text-gray-200">
+                                <div className="bg-emerald-50/90 dark:bg-emerald-950/40 p-3 rounded-2xl border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between text-xs text-emerald-900 dark:text-emerald-300">
+                                    <div className="flex items-center gap-2">
+                                        <Building2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                                        <span className="font-bold">ثبت مشخصات برگه خرید و حواله پتروشیمی / بورس کالا</span>
+                                    </div>
+                                    <span className="bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 px-2.5 py-0.5 rounded-lg text-[10px] font-black">ریالی (IRR)</span>
                                 </div>
-                                <div className="space-y-1.5">
-                                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">شماره سفارش</label>
-                                    <input className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-left dir-ltr text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newOrderNumber} onChange={e => setNewOrderNumber(e.target.value)} placeholder="مثال: ORD-1403-01..." />
+
+                                {/* Row 1: Contract Number & Remittance Number */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">
+                                            <span>شماره قرارداد / شناسه معامله بورس *</span>
+                                        </label>
+                                        <input 
+                                            className="w-full border border-emerald-300 dark:border-emerald-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-left dir-ltr text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all outline-none" 
+                                            value={newDomesticContractNumber} 
+                                            onChange={e => setNewDomesticContractNumber(e.target.value)} 
+                                            placeholder="مثال: 1403/B-9842 یا 872145..." 
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">
+                                            <span>شماره حواله / تخصیص بارگیری پتروشیمی</span>
+                                        </label>
+                                        <input 
+                                            className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-left dir-ltr text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all outline-none" 
+                                            value={newDomesticRemittanceNumber} 
+                                            onChange={e => setNewDomesticRemittanceNumber(e.target.value)} 
+                                            placeholder="مثال: REM-88421 یا 984512..." 
+                                        />
+                                    </div>
                                 </div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-1.5">
-                                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">شماره پرونده</label>
-                                    <input className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-left dir-ltr text-sm focus:bg-white dark:focus:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newFileNumberDirect} onChange={e => setNewFileNumberDirect(e.target.value)} placeholder="شماره پرونده (مستقل از پروفرما)..." />
+
+                                {/* Row 2: Petrochemical Proforma / Invoice No & Internal File Number */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">شماره پیش‌فاکتور / فاکتور پتروشیمی</label>
+                                        <input 
+                                            className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-left dir-ltr text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all outline-none" 
+                                            value={newDomesticProformaNumber} 
+                                            onChange={e => setNewDomesticProformaNumber(e.target.value)} 
+                                            placeholder="مثال: PI-1403/PETRO یا 54120..." 
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">شماره پرونده داخلی (اختیاری)</label>
+                                        <input 
+                                            className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-left dir-ltr text-sm focus:bg-white dark:focus:bg-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all outline-none" 
+                                            value={newFileNumberDirect} 
+                                            onChange={e => setNewFileNumberDirect(e.target.value)} 
+                                            placeholder="شماره پرونده مجزا در سیستم..." 
+                                        />
+                                    </div>
                                 </div>
-                                <div className="space-y-1.5">
-                                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">شماره ثبت سفارش</label>
-                                    <input className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-left dir-ltr text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newRegistrationNumber} onChange={e => setNewRegistrationNumber(e.target.value)} placeholder="شماره ۸ رقمی ثبت سفارش..." />
+
+                                {/* Row 3: Goods Name (Grade) & Quantity (Kg) */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">نام و گرید کالا (شرح کالا) *</label>
+                                        <input 
+                                            className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all outline-none font-bold" 
+                                            value={newGoodsName} 
+                                            onChange={e => setNewGoodsName(e.target.value)} 
+                                            placeholder="مثال: چیپس نساجی TG642..." 
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">مقدار / تناژ خرید (کیلوگرم) *</label>
+                                        <FormattedNumberInput 
+                                            className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm font-mono text-left dir-ltr focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all outline-none font-bold text-emerald-700 dark:text-emerald-400" 
+                                            value={newDomesticQuantityKgStr} 
+                                            onChange={val => setNewDomesticQuantityKgStr(val)} 
+                                            placeholder="۵۰,۰۰۰" 
+                                        />
+                                    </div>
                                 </div>
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">نام کالا (شرح کلی) *</label>
-                                <input className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newGoodsName} onChange={e => setNewGoodsName(e.target.value)} placeholder="مثال: ۲۵۰ تن چیپس پلی استر نساجی..." />
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">فروشنده</label>
-                                <input className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newSellerName} onChange={e => setNewSellerName(e.target.value)} placeholder="نام شرکت فروشنده..." />
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-1.5">
-                                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">گروه کالایی</label>
-                                    <input list="commodity-groups" className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newCommodityGroup} onChange={e => setNewCommodityGroup(e.target.value)} placeholder="انتخاب یا ورود گروه..." />
-                                    <datalist id="commodity-groups">{commodityGroups.map(g => <option key={g} value={g} />)}</datalist>
+
+                                {/* Row 4: Petrochemical (Seller) & Broker */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">نام شرکت پتروشیمی (فروشنده) *</label>
+                                        <input 
+                                            list="petrochemical-suppliers" 
+                                            className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all outline-none" 
+                                            value={newSellerName} 
+                                            onChange={e => setNewSellerName(e.target.value)} 
+                                            placeholder="انتخاب یا ورود نام پتروشیمی..." 
+                                        />
+                                        <datalist id="petrochemical-suppliers">
+                                            <option value="پتروشیمی شهید تندگویان" />
+                                            <option value="پتروشیمی شازند (اراک)" />
+                                            <option value="پتروشیمی اروند" />
+                                            <option value="پتروشیمی تبریز" />
+                                            <option value="پتروشیمی جم" />
+                                            <option value="پتروشیمی امیرکبیر" />
+                                            <option value="پتروشیمی رجال" />
+                                            <option value="پتروشیمی مارون" />
+                                            <option value="پتروشیمی بوعلی سینا" />
+                                            <option value="پتروشیمی پلی‌نار" />
+                                            <option value="پتروشیمی قائد بصیر" />
+                                        </datalist>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">کارگزاری بورس کالا</label>
+                                        <input 
+                                            list="bourse-brokers" 
+                                            className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all outline-none" 
+                                            value={newDomesticBroker} 
+                                            onChange={e => setNewDomesticBroker(e.target.value)} 
+                                            placeholder="نام کارگزاری بورس..." 
+                                        />
+                                        <datalist id="bourse-brokers">
+                                            <option value="کارگزاری بورس کالا" />
+                                            <option value="کارگزاری کاریزما" />
+                                            <option value="کارگزاری مفید" />
+                                            <option value="کارگزاری آگاه" />
+                                            <option value="کارگزاری مبین سرمایه" />
+                                            <option value="کارگزاری صبا جهاد" />
+                                            <option value="کارگزاری بورسیران" />
+                                            <option value="کارگزاری سهم آشنا" />
+                                            <option value="کارگزاری رضوی" />
+                                        </datalist>
+                                    </div>
                                 </div>
+
+                                {/* Row 5: Payment Method & Deal Date */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">نحوه تسویه / پرداخت</label>
+                                        <select 
+                                            className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all outline-none font-bold" 
+                                            value={newDomesticPaymentMethod} 
+                                            onChange={e => setNewDomesticPaymentMethod(e.target.value as any)}
+                                        >
+                                            <option value="internal_lc">🏦 اعتبار اسنادی داخلی (LC ریالی)</option>
+                                            <option value="cash">💵 پرداخت نقدی بورس کالا</option>
+                                            <option value="draft_barat">📜 برات الکترونیک (سامانه سپام)</option>
+                                            <option value="bourse_salaf">⏳ خرید سلف بورس کالا</option>
+                                        </select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">تاریخ معامله / قرارداد</label>
+                                        <TradeDatePicker 
+                                            value={newDomesticDealDate} 
+                                            onChange={val => setNewDomesticDealDate(val)} 
+                                            placeholder="انتخاب تاریخ معامله..." 
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Row 6: Company */}
                                 <div className="space-y-1.5">
-                                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">ارز پایه</label>
-                                    <select className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newMainCurrency} onChange={e => setNewMainCurrency(e.target.value)}>
-                                        {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+                                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">شرکت خریدار *</label>
+                                    <select 
+                                        className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all outline-none font-bold" 
+                                        value={newRecordCompany} 
+                                        onChange={e => setNewRecordCompany(e.target.value)}
+                                    >
+                                        <option value="">انتخاب شرکت خریدار...</option>
+                                        {availableCompanies.map(c => <option key={c} value={c}>{c}</option>)}
                                     </select>
                                 </div>
+
+                                <div className="pt-4 border-t border-gray-100 dark:border-gray-800 flex gap-3">
+                                    <button type="button" onClick={() => setShowNewModal(false)} className="flex-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-all">انصراف</button>
+                                    <button 
+                                        type="button" 
+                                        onClick={handleCreateRecord} 
+                                        disabled={(!newDomesticContractNumber && !newDomesticProformaNumber && !newFileNumberDirect) || !newGoodsName || !newRecordCompany} 
+                                        className="flex-1 bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-600/25 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <Check className="w-4 h-4" />
+                                        <span>ثبت و ایجاد پرونده پتروشیمی</span>
+                                    </button>
+                                </div>
                             </div>
-                            <div className="space-y-1.5">
-                                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">شرکت *</label>
-                                <select className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newRecordCompany} onChange={e => setNewRecordCompany(e.target.value)}>
-                                    <option value="">انتخاب شرکت مربوطه...</option>
-                                    {availableCompanies.map(c => <option key={c} value={c}>{c}</option>)}
-                                </select>
+                        ) : (
+                            <div className="space-y-4 text-gray-800 dark:text-gray-200">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">شماره پروفرم</label>
+                                        <input className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-left dir-ltr text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newProformaNumber} onChange={e => setNewProformaNumber(e.target.value)} placeholder="مثال: PI-1403-01 یا 2024-99..." />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">شماره سفارش</label>
+                                        <input className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-left dir-ltr text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newOrderNumber} onChange={e => setNewOrderNumber(e.target.value)} placeholder="مثال: ORD-1403-01..." />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">شماره پرونده</label>
+                                        <input className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-left dir-ltr text-sm focus:bg-white dark:focus:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newFileNumberDirect} onChange={e => setNewFileNumberDirect(e.target.value)} placeholder="شماره پرونده (مستقل از پروفرما)..." />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">شماره ثبت سفارش</label>
+                                        <input className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-left dir-ltr text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newRegistrationNumber} onChange={e => setNewRegistrationNumber(e.target.value)} placeholder="شماره ۸ رقمی ثبت سفارش..." />
+                                    </div>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">نام کالا (شرح کلی) *</label>
+                                    <input className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newGoodsName} onChange={e => setNewGoodsName(e.target.value)} placeholder="مثال: ۲۵۰ تن چیپس پلی استر نساجی..." />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">فروشنده</label>
+                                    <input className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newSellerName} onChange={e => setNewSellerName(e.target.value)} placeholder="نام شرکت فروشنده..." />
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">گروه کالایی</label>
+                                        <input list="commodity-groups" className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newCommodityGroup} onChange={e => setNewCommodityGroup(e.target.value)} placeholder="انتخاب یا ورود گروه..." />
+                                        <datalist id="commodity-groups">{commodityGroups.map(g => <option key={g} value={g} />)}</datalist>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">ارز پایه</label>
+                                        <select className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newMainCurrency} onChange={e => setNewMainCurrency(e.target.value)}>
+                                            {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">شرکت *</label>
+                                    <select className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none" value={newRecordCompany} onChange={e => setNewRecordCompany(e.target.value)}>
+                                        <option value="">انتخاب شرکت مربوطه...</option>
+                                        {availableCompanies.map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                </div>
+                                <div className="pt-4 border-t border-gray-100 dark:border-gray-800 flex gap-3">
+                                    <button type="button" onClick={() => setShowNewModal(false)} className="flex-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-all">انصراف</button>
+                                    <button type="button" onClick={handleCreateRecord} disabled={(!newProformaNumber && !newFileNumberDirect && !newFileNumber) || !newGoodsName || !newRecordCompany} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-600/20 disabled:opacity-50 transition-all">ایجاد پرونده</button>
+                                </div>
                             </div>
-                            <div className="pt-4 border-t border-gray-100 dark:border-gray-800 flex gap-3">
-                                <button type="button" onClick={() => setShowNewModal(false)} className="flex-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-all">انصراف</button>
-                                <button type="button" onClick={handleCreateRecord} disabled={(!newProformaNumber && !newFileNumber) || !newGoodsName || !newRecordCompany} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-600/20 disabled:opacity-50 transition-all">ایجاد پرونده</button>
-                            </div>
-                        </div>
+                        )}
                     </div>
                 </div>,
                 document.body

@@ -219,17 +219,17 @@ import {
 import { DocumentEditor } from "@onlyoffice/document-editor-react";
 
 import {
-  User,
+  type User,
   UserRole,
-  SystemSettings,
-  Company,
-  SecretariatLetter,
-  SecretariatLetterStatus,
-  SecretariatLetterComment,
-  SecretariatLetterAttachment,
-  SecretariatCompanySettings,
-  SecretariatTemplate,
-  CompanyStampItem,
+  type SystemSettings,
+  type Company,
+  type SecretariatLetter,
+  type SecretariatLetterStatus,
+  type SecretariatLetterComment,
+  type SecretariatLetterAttachment,
+  type SecretariatCompanySettings,
+  type SecretariatTemplate,
+  type CompanyStampItem,
 } from "../types";
 
 import {
@@ -1577,11 +1577,11 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
           ...prev,
           content: data.htmlContent,
         }));
-        setGoogleDocStatusText("✓ متن ویرایش شده از ONLYOFFICE با موفقیت با سربرگ دبیرخانه همگام‌سازی شد.");
-        setTimeout(() => setGoogleDocStatusText(null), 5000);
+        setSyncNotificationText("✓ متن ویرایش شده از ONLYOFFICE با موفقیت با سربرگ دبیرخانه همگام‌سازی شد.");
+        setTimeout(() => setSyncNotificationText(null), 5000);
       } else {
-        setGoogleDocStatusText("✓ محتوای سند با ONLYOFFICE همگام است.");
-        setTimeout(() => setGoogleDocStatusText(null), 4000);
+        setSyncNotificationText("✓ محتوای سند با ONLYOFFICE همگام است.");
+        setTimeout(() => setSyncNotificationText(null), 4000);
       }
     } catch (err: any) {
       console.error("ONLYOFFICE Sync error:", err);
@@ -1696,6 +1696,141 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     insertHTML(tableHtml);
     setShowTableModal(false);
     setSheetDataText("");
+  };
+
+  // Insert Pre-built Corporate Tables
+  const handleInsertTemplateTable = (templateKey: string) => {
+    let tableHtml = "";
+    if (templateKey === "invoice") {
+      tableHtml = `
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0; direction: rtl; font-family: inherit; font-size: 13px;">
+          <thead>
+            <tr style="background-color: #1e3a8a; color: white; font-weight: bold;">
+              <th style="border: 1px solid #1e3a8a; padding: 10px; text-align: center; width: 45px;">ردیف</th>
+              <th style="border: 1px solid #1e3a8a; padding: 10px; text-align: right;">شرح کالا / خدمات</th>
+              <th style="border: 1px solid #1e3a8a; padding: 10px; text-align: center; width: 70px;">تعداد</th>
+              <th style="border: 1px solid #1e3a8a; padding: 10px; text-align: center; width: 70px;">واحد</th>
+              <th style="border: 1px solid #1e3a8a; padding: 10px; text-align: left; width: 120px;">مبلغ واحد (ریال)</th>
+              <th style="border: 1px solid #1e3a8a; padding: 10px; text-align: left; width: 140px;">مبلغ کل (ریال)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">۱</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right;">اقلام ردیف اول</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">۱</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">عدد</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left;">۰</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left;">۰</td>
+            </tr>
+            <tr style="background-color: #f8fafc;">
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">۲</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right;">اقلام ردیف دوم</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">۱</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">عدد</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left;">۰</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left;">۰</td>
+            </tr>
+            <tr style="background-color: #f1f5f9; font-weight: bold;">
+              <td colspan="5" style="border: 1px solid #94a3b8; padding: 10px; text-align: left;">جمع کل اقلام:</td>
+              <td style="border: 1px solid #94a3b8; padding: 10px; text-align: left;">۰ ریال</td>
+            </tr>
+          </tbody>
+        </table><p><br/></p>
+      `;
+    } else if (templateKey === "minutes") {
+      tableHtml = `
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0; direction: rtl; font-family: inherit; font-size: 13px;">
+          <thead>
+            <tr style="background-color: #047857; color: white; font-weight: bold;">
+              <th style="border: 1px solid #047857; padding: 10px; text-align: center; width: 50px;">ردیف</th>
+              <th style="border: 1px solid #047857; padding: 10px; text-align: right;">شرح مصوبه / تصمیم متخذه</th>
+              <th style="border: 1px solid #047857; padding: 10px; text-align: center; width: 140px;">مسئول پیگیری</th>
+              <th style="border: 1px solid #047857; padding: 10px; text-align: center; width: 110px;">مهلت اقدام</th>
+              <th style="border: 1px solid #047857; padding: 10px; text-align: center; width: 90px;">وضعیت</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">۱</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right;">مقرر گردید اقدامات لازم صورت پذیرد.</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">واحد مربوطه</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">۱ هفته</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">در دست اقدام</td>
+            </tr>
+            <tr style="background-color: #f8fafc;">
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">۲</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right;">تهیه و ارسال گزارش نهایی.</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">مدیریت پروژه</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">۳ روز کاری</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">در انتظار تایید</td>
+            </tr>
+          </tbody>
+        </table><p><br/></p>
+      `;
+    } else if (templateKey === "technical") {
+      tableHtml = `
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0; direction: rtl; font-family: inherit; font-size: 13px;">
+          <thead>
+            <tr style="background-color: #334155; color: white; font-weight: bold;">
+              <th style="border: 1px solid #334155; padding: 10px; text-align: center; width: 50px;">ردیف</th>
+              <th style="border: 1px solid #334155; padding: 10px; text-align: right; width: 160px;">پارامتر فنی</th>
+              <th style="border: 1px solid #334155; padding: 10px; text-align: right;">مشخصات مورد درخواست</th>
+              <th style="border: 1px solid #334155; padding: 10px; text-align: right;">مشخصات پیشنهادی / ارائه‌شده</th>
+              <th style="border: 1px solid #334155; padding: 10px; text-align: center; width: 90px;">انطباق</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">۱</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right; font-weight: bold;">استاندارد مرجع</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right;">ISO / ASTM</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right;">مطابق گواهی ارائه‌شده</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center; color: #059669; font-weight: bold;">تایید</td>
+            </tr>
+            <tr style="background-color: #f8fafc;">
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">۲</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right; font-weight: bold;">مدت گارانتی</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right;">حداقل ۱۲ ماه</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right;">۱۸ ماه ضمانت طلایی</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center; color: #059669; font-weight: bold;">تایید</td>
+            </tr>
+          </tbody>
+        </table><p><br/></p>
+      `;
+    } else if (templateKey === "personnel") {
+      tableHtml = `
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0; direction: rtl; font-family: inherit; font-size: 13px;">
+          <thead>
+            <tr style="background-color: #4338ca; color: white; font-weight: bold;">
+              <th style="border: 1px solid #4338ca; padding: 10px; text-align: center; width: 45px;">ردیف</th>
+              <th style="border: 1px solid #4338ca; padding: 10px; text-align: right;">نام و نام خانوادگی</th>
+              <th style="border: 1px solid #4338ca; padding: 10px; text-align: center; width: 110px;">کد ملی</th>
+              <th style="border: 1px solid #4338ca; padding: 10px; text-align: right; width: 140px;">سمت سازمانی</th>
+              <th style="border: 1px solid #4338ca; padding: 10px; text-align: center; width: 110px;">شماره تماس</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">۱</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right;">—</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">—</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right;">کارشناس مسئول</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">—</td>
+            </tr>
+            <tr style="background-color: #f8fafc;">
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">۲</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right;">—</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">—</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right;">عضو تیم اجرایی</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center;">—</td>
+            </tr>
+          </tbody>
+        </table><p><br/></p>
+      `;
+    }
+    insertHTML(tableHtml);
+    setShowTableModal(false);
   };
 
   // Close menus on click outside
@@ -3969,6 +4104,25 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                             درج مهر شرکت
                           </label>
                         )}
+                        <label className="flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400 font-bold cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={newLetterForm.hasAttachment || (newLetterForm.attachments && newLetterForm.attachments.length > 0)}
+                            onChange={(e) =>
+                              setNewLetterForm({
+                                ...newLetterForm,
+                                hasAttachment: e.target.checked,
+                              })
+                            }
+                            className="rounded text-amber-600 focus:ring-amber-500 w-3.5 h-3.5"
+                          />
+                          <span>پیوست دارد</span>
+                          {Boolean(newLetterForm.hasAttachment || newLetterForm.attachments?.length) && (
+                            <span className="text-[10px] text-amber-600 dark:text-amber-300 font-normal">
+                              ({newLetterForm.attachmentDescription || (newLetterForm.attachments?.length ? `${newLetterForm.attachments.length} فایل` : "دارد")})
+                            </span>
+                          )}
+                        </label>
                         <label className="flex items-center gap-1.5 text-[11px] text-purple-600 dark:text-purple-400 font-bold cursor-pointer select-none">
                           <input
                             type="checkbox"
@@ -4571,65 +4725,55 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                             <button
                               type="button"
                               onClick={() => {
-                                handleOpenGoogleDocs();
+                                setTableModalTab("custom");
+                                setShowTableModal(true);
                                 setActiveMenu(null);
                               }}
-                              className="w-full text-right px-3 py-2 hover:bg-sky-50 dark:hover:bg-sky-950/40 flex items-center justify-between font-medium"
+                              className="w-full text-right px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-950/40 flex items-center justify-between font-medium text-blue-700 dark:text-blue-300"
                             >
                               <div className="flex items-center gap-2">
-                                <ExternalLink size={14} className="text-sky-600" />
-                                <span>انتقال و باز کردن در Google Docs</span>
+                                <Table size={14} className="text-blue-600" />
+                                <span>طراحی و درج جدول سازمانی سفارشی</span>
                               </div>
-                              <span className="text-[10px] text-slate-400">سند گوگل</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                handleOpenGoogleSheets();
-                                setActiveMenu(null);
-                              }}
-                              className="w-full text-right px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center justify-between font-medium"
-                            >
-                              <div className="flex items-center gap-2">
-                                <FileSpreadsheet size={14} className="text-emerald-600" />
-                                <span>باز کردن Google Sheets (صفحه گسترده گوگل)</span>
-                              </div>
-                              <span className="text-[10px] text-slate-400">اکسل گوگل</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setGoogleTab("table-importer");
-                                setShowGoogleModal(true);
-                                setActiveMenu(null);
-                              }}
-                              className="w-full text-right px-3 py-2 hover:bg-amber-50 dark:hover:bg-amber-950/40 flex items-center justify-between font-medium text-amber-700 dark:text-amber-300"
-                            >
-                              <div className="flex items-center gap-2">
-                                <Table size={14} className="text-amber-600" />
-                                <span>تبدیل جدول کپی شده از گوگل شیت / اکسل</span>
-                              </div>
-                              <span className="text-[10px] bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded font-bold">
-                                جدول هوشمند
+                              <span className="text-[10px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 px-1.5 py-0.5 rounded font-bold">
+                                جدول
                               </span>
                             </button>
 
                             <button
                               type="button"
                               onClick={() => {
-                                setGoogleTab("embed");
-                                setShowGoogleModal(true);
+                                setTableModalTab("templates");
+                                setShowTableModal(true);
                                 setActiveMenu(null);
                               }}
                               className="w-full text-right px-3 py-2 hover:bg-purple-50 dark:hover:bg-purple-950/40 flex items-center justify-between font-medium text-purple-700 dark:text-purple-300"
                             >
                               <div className="flex items-center gap-2">
-                                <Layers size={14} className="text-purple-600" />
-                                <span>اتصال زنده لینک Google Doc / Sheet</span>
+                                <FileSpreadsheet size={14} className="text-purple-600" />
+                                <span>قالب‌های آماده جدول اداری و مالی</span>
                               </div>
-                              <span className="text-[10px] text-slate-400">پیش‌نمایش</span>
+                              <span className="text-[10px] bg-purple-100 dark:bg-purple-900/40 text-purple-700 px-1.5 py-0.5 rounded font-bold">
+                                الگوها
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTableModalTab("paste");
+                                setShowTableModal(true);
+                                setActiveMenu(null);
+                              }}
+                              className="w-full text-right px-3 py-2 hover:bg-amber-50 dark:hover:bg-amber-950/40 flex items-center justify-between font-medium text-amber-700 dark:text-amber-300"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Table size={14} className="text-amber-600" />
+                                <span>پیست مستقیم جدول از اکسل (Excel / Calc)</span>
+                              </div>
+                              <span className="text-[10px] bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded font-bold">
+                                Paste
+                              </span>
                             </button>
                           </div>
                         </div>
@@ -4837,19 +4981,6 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                           <span>ONLYOFFICE Docs</span>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => changeEditorViewMode("google-docs")}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-bold transition-all ${
-                            editorViewMode === "google-docs"
-                              ? "bg-sky-600 text-white shadow-xs"
-                              : "text-slate-600 dark:text-slate-400 hover:text-sky-600 dark:hover:text-sky-400"
-                          }`}
-                          title="گزینه ابری: کار با Google Docs"
-                        >
-                          <Globe size={13} />
-                          <span className="hidden sm:inline">Google Docs</span>
-                        </button>
 
                         <button
                           type="button"
@@ -5254,12 +5385,15 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => setShowGoogleModal(true)}
-                        className="px-2.5 py-1 rounded-lg text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 hover:bg-sky-100 dark:hover:bg-sky-900/60 border border-sky-200 dark:border-sky-800/40 transition-colors flex items-center gap-1 text-[11px] font-extrabold"
-                        title="ابزارهای Google Docs و Google Sheets"
+                        onClick={() => {
+                          setTableModalTab("custom");
+                          setShowTableModal(true);
+                        }}
+                        className="px-2.5 py-1 rounded-lg text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800/40 transition-colors flex items-center gap-1 text-[11px] font-extrabold"
+                        title="طراحی و مدیریت جداول اداری"
                       >
-                        <FileSpreadsheet size={14} className="text-sky-600 dark:text-sky-400" />
-                        <span>Google Docs / Sheets</span>
+                        <Table size={14} className="text-blue-600 dark:text-blue-400" />
+                        <span>طراحی جدول</span>
                       </button>
 
                       <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-0.5" />
@@ -5465,6 +5599,167 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                     </div>
                   )}
 
+                  {/* Word-style Floating Table Management Ribbon */}
+                  {selectedTableEl && (
+                    <div
+                      id="table-management-ribbon"
+                      className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 border-b border-blue-500/30 px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs text-white z-40 shadow-lg animate-fade-in shrink-0"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="flex items-center gap-1.5 bg-blue-600 text-white px-2 py-0.5 rounded font-black text-[11px] shadow-xs">
+                          <Table size={13} />
+                          ابزار جدول اداری
+                        </span>
+                        <span className="text-[11px] text-blue-200 hidden sm:inline">
+                          مدیریت ردیف‌ها، ستون‌ها و استایل جدول انتخاب شده
+                        </span>
+                      </div>
+
+                      {/* Table Structure Actions */}
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={insertTableRowAbove}
+                          className="px-2 py-1 rounded bg-slate-700/80 hover:bg-slate-600 text-[11px] font-bold border border-slate-600/60 transition-colors"
+                          title="افزودن سطر در بالای سطر فعلی"
+                        >
+                          + سطر بالا
+                        </button>
+                        <button
+                          type="button"
+                          onClick={insertTableRowBelow}
+                          className="px-2 py-1 rounded bg-slate-700/80 hover:bg-slate-600 text-[11px] font-bold border border-slate-600/60 transition-colors"
+                          title="افزودن سطر در پایین سطر فعلی"
+                        >
+                          + سطر پایین
+                        </button>
+                        <button
+                          type="button"
+                          onClick={insertTableColRight}
+                          className="px-2 py-1 rounded bg-slate-700/80 hover:bg-slate-600 text-[11px] font-bold border border-slate-600/60 transition-colors"
+                          title="افزودن ستون سمت راست"
+                        >
+                          + ستون راست
+                        </button>
+                        <button
+                          type="button"
+                          onClick={insertTableColLeft}
+                          className="px-2 py-1 rounded bg-slate-700/80 hover:bg-slate-600 text-[11px] font-bold border border-slate-600/60 transition-colors"
+                          title="افزودن ستون سمت چپ"
+                        >
+                          + ستون چپ
+                        </button>
+
+                        <div className="h-4 w-px bg-slate-700 mx-1" />
+
+                        {/* Cell Background Color */}
+                        <div className="flex items-center gap-1 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700">
+                          <Palette size={12} className="text-amber-400" />
+                          <span className="text-[10px] text-slate-300">رنگ سلول:</span>
+                          <button
+                            type="button"
+                            onClick={() => setTableCellBg("#f1f5f9")}
+                            className="w-3.5 h-3.5 rounded-full bg-slate-100 border border-slate-400"
+                            title="خاکستری روشن"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setTableCellBg("#eff6ff")}
+                            className="w-3.5 h-3.5 rounded-full bg-blue-100 border border-blue-400"
+                            title="آبی روشن"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setTableCellBg("#ecfdf5")}
+                            className="w-3.5 h-3.5 rounded-full bg-emerald-100 border border-emerald-400"
+                            title="سبز روشن"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setTableCellBg("#fef3c7")}
+                            className="w-3.5 h-3.5 rounded-full bg-amber-100 border border-amber-400"
+                            title="زرد ملایم"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setTableCellBg("transparent")}
+                            className="w-3.5 h-3.5 rounded-full bg-white border border-slate-300 relative"
+                            title="بدون رنگ"
+                          >
+                            <span className="absolute inset-0 text-red-500 text-[10px] font-bold flex items-center justify-center">×</span>
+                          </button>
+                        </div>
+
+                        {/* Quick Theme Switcher */}
+                        <div className="flex items-center gap-1 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700">
+                          <SlidersHorizontal size={12} className="text-blue-400" />
+                          <span className="text-[10px] text-slate-300">قالب:</span>
+                          <button
+                            type="button"
+                            onClick={() => applyTableTheme("corporate-blue")}
+                            className="px-1.5 py-0.5 rounded bg-blue-900/60 hover:bg-blue-800 text-[10px] font-bold text-blue-200"
+                          >
+                            سازمانی آبی
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => applyTableTheme("emerald")}
+                            className="px-1.5 py-0.5 rounded bg-emerald-900/60 hover:bg-emerald-800 text-[10px] font-bold text-emerald-200"
+                          >
+                            مالی سبز
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => applyTableTheme("classic-slate")}
+                            className="px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-[10px] font-bold text-slate-200"
+                          >
+                            کلاسیک
+                          </button>
+                        </div>
+
+                        <div className="h-4 w-px bg-slate-700 mx-1" />
+
+                        {/* Deletions */}
+                        <button
+                          type="button"
+                          onClick={deleteCurrentTableRow}
+                          className="px-2 py-1 rounded bg-amber-900/50 hover:bg-amber-800 text-amber-200 text-[11px] font-bold border border-amber-700/50 transition-colors"
+                          title="حذف سطر جاری"
+                        >
+                          حذف سطر
+                        </button>
+                        <button
+                          type="button"
+                          onClick={deleteCurrentTableCol}
+                          className="px-2 py-1 rounded bg-amber-900/50 hover:bg-amber-800 text-amber-200 text-[11px] font-bold border border-amber-700/50 transition-colors"
+                          title="حذف ستون جاری"
+                        >
+                          حذف ستون
+                        </button>
+                        <button
+                          type="button"
+                          onClick={deleteEntireTable}
+                          className="px-2 py-1 rounded bg-red-600/80 hover:bg-red-600 text-white text-[11px] font-bold border border-red-500/50 transition-colors flex items-center gap-1"
+                          title="حذف کامل جدول"
+                        >
+                          <Trash2 size={12} />
+                          <span>حذف جدول</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedTableEl(null);
+                            setSelectedCellEl(null);
+                          }}
+                          className="text-slate-400 hover:text-white p-1"
+                          title="بستن روبان جدول"
+                        >
+                          <X size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Dynamic Workspace Container */}
                   <div className="flex-1 min-h-0 bg-slate-200/90 dark:bg-slate-950 flex flex-col w-full relative overflow-hidden">
                     
@@ -5521,10 +5816,10 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                         </div>
 
                         {/* Status notification toast inside workspace */}
-                        {googleDocStatusText && (
+                        {syncNotificationText && (
                           <div className="bg-emerald-900/90 text-emerald-200 border-b border-emerald-700 px-4 py-1.5 text-xs text-center font-bold flex items-center justify-center gap-2 animate-slide-down">
                             <CheckCheck size={14} className="text-emerald-400" />
-                            <span>{googleDocStatusText}</span>
+                            <span>{syncNotificationText}</span>
                           </div>
                         )}
 
@@ -5685,168 +5980,217 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                     {editorViewMode === "office" && (
                       <div className="flex-1 min-h-0 p-1.5 sm:p-3 overflow-y-auto flex justify-center w-full relative custom-scrollbar">
                         <div
+                          ref={paperRef}
                           className="bg-white dark:bg-gray-900 shadow-2xl border border-slate-300 dark:border-slate-800 rounded-sm p-[1.8cm] mx-auto transition-all duration-300 google-docs-paper text-right relative flex flex-col justify-between my-auto"
                           style={{
                             width:
                               newLetterForm.paperSize === "A5"
                                 ? newLetterForm.orientation === "landscape"
-                                  ? "100%"
-                                  : "148mm"
-                                : newLetterForm.orientation === "landscape"
-                                  ? "100%"
-                                  : "210mm",
-                            minHeight:
-                              newLetterForm.paperSize === "A5"
-                                ? newLetterForm.orientation === "landscape"
-                                  ? "148mm"
-                                  : "210mm"
-                                : newLetterForm.orientation === "landscape"
-                                  ? "210mm"
-                                  : "297mm",
-                            maxWidth: "100%",
-                            transform: editorZoom !== 100 ? `scale(${editorZoom / 100})` : undefined,
-                            transformOrigin: "top center",
-                          }}
-                          dir="rtl"
-                        >
-                          {(() => {
-                            const cleanText = (newLetterForm.content || "")
-                              .replace(/<[^>]*>/g, "")
-                              .trim();
-                            const wCount = cleanText
-                              ? cleanText.split(/\s+/).length
-                              : 0;
-                            const cCount = cleanText.length;
-                            return (
-                              <>
-                                <ReactQuill
-                                  ref={quillRef}
-                                  theme="snow"
-                                  value={newLetterForm.content}
-                                  onChange={(val) =>
-                                    setNewLetterForm({
-                                      ...newLetterForm,
-                                      content: val,
-                                    })
-                                  }
-                                  placeholder="متن رسمی و اداری خود را اینجا بنویسید..."
-                                  className="text-sm border-none ql-editor-borderless flex-1"
-                                  modules={{
-                                    toolbar: "#letter-custom-quill-toolbar",
+                                ? "100%"
+                                : "148mm"
+                              : newLetterForm.orientation === "landscape"
+                                ? "100%"
+                                : "210mm",
+                          minHeight:
+                            newLetterForm.paperSize === "A5"
+                              ? newLetterForm.orientation === "landscape"
+                                ? "148mm"
+                                : "210mm"
+                              : newLetterForm.orientation === "landscape"
+                                ? "210mm"
+                                : "297mm",
+                          maxWidth: "100%",
+                          transform: editorZoom !== 100 ? `scale(${editorZoom / 100})` : undefined,
+                          transformOrigin: "top center",
+                        }}
+                        dir="rtl"
+                      >
+                        {(() => {
+                          const cleanText = (newLetterForm.content || "")
+                            .replace(/<[^>]*>/g, "")
+                            .trim();
+                          const wCount = cleanText
+                            ? cleanText.split(/\s+/).length
+                            : 0;
+                          const cCount = cleanText.length;
+                          return (
+                            <>
+                              <ReactQuill
+                                ref={quillRef}
+                                theme="snow"
+                                value={newLetterForm.content}
+                                onChange={(val) =>
+                                  setNewLetterForm({
+                                    ...newLetterForm,
+                                    content: val,
+                                  })
+                                }
+                                placeholder="متن رسمی و اداری خود را اینجا بنویسید..."
+                                className="text-sm border-none ql-editor-borderless flex-1"
+                                modules={{
+                                  toolbar: "#letter-custom-quill-toolbar",
+                                }}
+                              />
+
+                              {/* Word-style Interactive 8-Handle Image Resizer & Rotation Overlay */}
+                              {imgOverlayBox && selectedImgEl && (
+                                <div
+                                  className="img-interactive-overlay absolute z-30 pointer-events-none select-none"
+                                  style={{
+                                    top: `${imgOverlayBox.top}px`,
+                                    left: `${imgOverlayBox.left}px`,
+                                    width: `${imgOverlayBox.width}px`,
+                                    height: `${imgOverlayBox.height}px`,
                                   }}
-                                />
+                                >
+                                  {/* Selection bounding outline */}
+                                  <div className="absolute inset-0 border-2 border-blue-500 rounded-xs shadow-sm ring-1 ring-blue-300/60 pointer-events-none" />
 
-                                {/* Realtime Stats Display */}
-                                <div className="absolute bottom-3 left-4 select-none bg-slate-50 dark:bg-slate-800 border dark:border-white/5 rounded px-2 py-1 text-[10px] text-slate-400 dark:text-slate-300 font-bold flex items-center gap-2 shadow-sm pointer-events-none">
-                                  <span>
-                                    کلمات:{" "}
-                                    <b className="text-slate-700 dark:text-white font-mono">
-                                      {wCount}
-                                    </b>
-                                  </span>
-                                  <span className="text-slate-300 dark:text-slate-700">
-                                    |
-                                  </span>
-                                  <span>
-                                    کاراکترها:{" "}
-                                    <b className="text-slate-700 dark:text-white font-mono">
-                                      {cCount}
-                                    </b>
-                                  </span>
+                                  {/* Rotation handle */}
+                                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-auto">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        rotateSelectedImage(90);
+                                      }}
+                                      className="w-5 h-5 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shadow-md cursor-pointer transition-transform hover:scale-110"
+                                      title="چرخش ۹۰ درجه تصویر"
+                                    >
+                                      <RotateCw size={11} />
+                                    </button>
+                                    <div className="w-0.5 h-2 bg-blue-500" />
+                                  </div>
+
+                                  {/* 4 Corner Handles (NW, NE, SW, SE) */}
+                                  <div
+                                    onMouseDown={(e) => startImageInteractiveResize(e, "nw")}
+                                    className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-nwse-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    title="تغییر سایز گوشه چپ بالا"
+                                  />
+                                  <div
+                                    onMouseDown={(e) => startImageInteractiveResize(e, "ne")}
+                                    className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-nesw-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    title="تغییر سایز گوشه راست بالا"
+                                  />
+                                  <div
+                                    onMouseDown={(e) => startImageInteractiveResize(e, "sw")}
+                                    className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-nesw-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    title="تغییر سایز گوشه چپ پایین"
+                                  />
+                                  <div
+                                    onMouseDown={(e) => startImageInteractiveResize(e, "se")}
+                                    className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-nwse-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    title="تغییر سایز گوشه راست پایین"
+                                  />
+
+                                  {/* 4 Edge Handles (N, S, W, E) */}
+                                  <div
+                                    onMouseDown={(e) => startImageInteractiveResize(e, "n")}
+                                    className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-ns-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    title="تغییر ارتفاع از بالا"
+                                  />
+                                  <div
+                                    onMouseDown={(e) => startImageInteractiveResize(e, "s")}
+                                    className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-ns-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    title="تغییر ارتفاع از پایین"
+                                  />
+                                  <div
+                                    onMouseDown={(e) => startImageInteractiveResize(e, "w")}
+                                    className="absolute top-1/2 -translate-y-1/2 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-ew-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    title="تغییر عرض از چپ"
+                                  />
+                                  <div
+                                    onMouseDown={(e) => startImageInteractiveResize(e, "e")}
+                                    className="absolute top-1/2 -translate-y-1/2 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-ew-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    title="تغییر عرض از راست"
+                                  />
+
+                                  {/* Quick Layout Action Pill */}
+                                  <div className="absolute -top-8 right-0 flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md shadow-lg px-1.5 py-0.5 pointer-events-auto">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        updateSelectedImageAlign("right");
+                                      }}
+                                      className={`p-1 rounded text-xs hover:bg-slate-100 dark:hover:bg-slate-700 ${selectedImgAlign === "right" ? "text-blue-600 font-bold" : "text-slate-600"}`}
+                                      title="راست‌چین"
+                                    >
+                                      <AlignRight size={13} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        updateSelectedImageAlign("center");
+                                      }}
+                                      className={`p-1 rounded text-xs hover:bg-slate-100 dark:hover:bg-slate-700 ${selectedImgAlign === "center" ? "text-blue-600 font-bold" : "text-slate-600"}`}
+                                      title="وسط‌چین"
+                                    >
+                                      <AlignCenter size={13} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        updateSelectedImageAlign("left");
+                                      }}
+                                      className={`p-1 rounded text-xs hover:bg-slate-100 dark:hover:bg-slate-700 ${selectedImgAlign === "left" ? "text-blue-600 font-bold" : "text-slate-600"}`}
+                                      title="چپ‌چین"
+                                    >
+                                      <AlignLeft size={13} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleSelectedImageWatermark();
+                                      }}
+                                      className={`p-1 rounded text-xs hover:bg-slate-100 dark:hover:bg-slate-700 ${selectedImgIsWatermark ? "text-amber-600 font-bold" : "text-slate-600"}`}
+                                      title="قرار دادن به عنوان واترمارک"
+                                    >
+                                      <Layers size={13} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteSelectedImage();
+                                      }}
+                                      className="p-1 rounded text-xs hover:bg-red-50 text-red-600"
+                                      title="حذف تصویر"
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  </div>
                                 </div>
-                              </>
-                            );
-                          })()}
-                        </div>
+                              )}
+
+                              {/* Realtime Stats Display */}
+                              <div className="absolute bottom-3 left-4 select-none bg-slate-50 dark:bg-slate-800 border dark:border-white/5 rounded px-2 py-1 text-[10px] text-slate-400 dark:text-slate-300 font-bold flex items-center gap-2 shadow-sm pointer-events-none">
+                                <span>
+                                  کلمات:{" "}
+                                  <b className="text-slate-700 dark:text-white font-mono">
+                                    {wCount}
+                                  </b>
+                                </span>
+                                <span className="text-slate-300 dark:text-slate-700">
+                                  |
+                                </span>
+                                <span>
+                                  کاراکترها:{" "}
+                                  <b className="text-slate-700 dark:text-white font-mono">
+                                    {cCount}
+                                  </b>
+                                </span>
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
-                    )}
-
-                    {/* MODE 3: Google Docs Cloud Interactive Workspace (Secondary Option) */}
-                    {editorViewMode === "google-docs" && (
-                      <div className="flex-1 flex flex-col w-full h-full bg-slate-900">
-                        {/* Google Docs Toolbar */}
-                        <div className="bg-slate-900 border-b border-slate-700 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs text-white shrink-0">
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-1.5 bg-sky-600 text-white px-2.5 py-1 rounded-lg font-black">
-                              <Globe size={15} />
-                              <span>محیط تعاملی Google Docs</span>
-                            </div>
-                            <span className="text-slate-400 hidden lg:inline text-[11px]">
-                              (گزینه ابری ثانویه برای ویرایش و انتقال محتوا)
-                            </span>
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-2">
-                            <input
-                              type="text"
-                              value={googleDocInputUrl}
-                              onChange={(e) => setGoogleDocInputUrl(e.target.value)}
-                              placeholder="لینک سند گوگل داکس (docs.google.com/document/...)"
-                              className="px-3 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 w-64 focus:outline-none focus:border-sky-500"
-                              dir="ltr"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleLoadGoogleDocInFrame(googleDocInputUrl)}
-                              className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-bold"
-                            >
-                              بارگذاری سند
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newDocUrl = "https://docs.google.com/document/create";
-                                window.open(newDocUrl, "_blank");
-                              }}
-                              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold border border-slate-700 flex items-center gap-1"
-                              title="ایجاد سند جدید در Google Docs"
-                            >
-                              <ExternalLink size={13} />
-                              <span>سند جدید</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleImportGoogleDoc(googleDocInputUrl || activeGoogleDocUrl)}
-                              disabled={isImportingGoogleDoc}
-                              className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1"
-                              title="انتقال محتوای Google Docs به متن نامه اداری"
-                            >
-                              <FileUp size={13} />
-                              <span>{isImportingGoogleDoc ? "در حال دریافت..." : "ورود به نامه اداری"}</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={handleExportToGoogleDocs}
-                              className="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold flex items-center gap-1"
-                              title="کپی متن نامه برای الصاق در Google Docs"
-                            >
-                              <Copy size={13} />
-                              <span>ارسال به Google Docs</span>
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Google Docs Status bar */}
-                        {googleDocStatusText && (
-                          <div className="bg-sky-900/90 text-sky-200 border-b border-sky-700 px-4 py-1.5 text-xs text-center font-bold">
-                            {googleDocStatusText}
-                          </div>
-                        )}
-
-                        {/* Embedded Google Docs Iframe */}
-                        <div className="flex-1 w-full h-full relative bg-white">
-                          <iframe
-                            src={activeGoogleDocUrl}
-                            className="w-full h-full border-0"
-                            allow="clipboard-read; clipboard-write"
-                            title="Google Docs Interactive Editor"
-                          />
-                        </div>
-                      </div>
-                    )}
+                    </div>
+                  )}
 
                     {/* MODE 4: Split View Workspace (ONLYOFFICE + Letterhead side by side) */}
                     {editorViewMode === "split" && (
@@ -6027,12 +6371,15 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setShowGoogleModal(true)}
-                      className="bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border border-sky-200 dark:border-sky-800/40 text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5"
-                      title="امکانات یکپارچه‌سازی گوگل داکس و شیت"
+                      onClick={() => {
+                        setTableModalTab("custom");
+                        setShowTableModal(true);
+                      }}
+                      className="bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200 dark:border-blue-800/40 text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5"
+                      title="طراحی و مدیریت جداول اداری"
                     >
-                      <FileSpreadsheet size={14} className="text-sky-600 dark:text-sky-400" />
-                      <span>Google Docs / Sheets</span>
+                      <Table size={14} className="text-blue-600 dark:text-blue-400" />
+                      <span>طراحی جدول</span>
                     </button>
                   </div>
 
@@ -6350,56 +6697,153 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
               </div>
 
               {/* Attachments Section */}
-              <div className="space-y-2 border-t dark:border-slate-800 pt-3">
+              <div className="space-y-3 border-t dark:border-slate-800 pt-3">
                 <div className="flex items-center justify-between">
-                  <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">
-                    الصاق فایل‌های پیوست (اسناد، تصاویر، PDF)
+                  <label className="text-xs text-slate-800 dark:text-slate-200 font-extrabold flex items-center gap-1.5">
+                    <Paperclip size={14} className="text-amber-600" />
+                    وضعیت و مدیریت پیوست‌های نامه اداری
                   </label>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    className="hidden"
-                    onChange={handleAttachmentUpload}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-1 text-[11px] text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border dark:border-slate-700 px-3 py-1.5 rounded-lg font-bold transition-colors"
-                    disabled={uploadingAttachment}
-                  >
-                    <Upload size={13} />
-                    {uploadingAttachment
-                      ? "درحال آپلود..."
-                      : "انتخاب و الصاق فایل جدید"}
-                  </button>
+                  <div className="flex items-center gap-3 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border dark:border-slate-700">
+                    <label className={`text-xs font-bold px-3 py-1 rounded-lg cursor-pointer transition-all flex items-center gap-1.5 ${!newLetterForm.hasAttachment && (!newLetterForm.attachments || newLetterForm.attachments.length === 0) ? "bg-white dark:bg-slate-900 text-slate-800 dark:text-white shadow-xs" : "text-slate-500"}`}>
+                      <input
+                        type="radio"
+                        name="hasAttachmentChoice"
+                        checked={!newLetterForm.hasAttachment && (!newLetterForm.attachments || newLetterForm.attachments.length === 0)}
+                        onChange={() =>
+                          setNewLetterForm({
+                            ...newLetterForm,
+                            hasAttachment: false,
+                          })
+                        }
+                        className="hidden"
+                      />
+                      <span>پیوست ندارد</span>
+                    </label>
+                    <label className={`text-xs font-bold px-3 py-1 rounded-lg cursor-pointer transition-all flex items-center gap-1.5 ${newLetterForm.hasAttachment || (newLetterForm.attachments && newLetterForm.attachments.length > 0) ? "bg-amber-600 text-white shadow-xs" : "text-slate-500"}`}>
+                      <input
+                        type="radio"
+                        name="hasAttachmentChoice"
+                        checked={Boolean(newLetterForm.hasAttachment || (newLetterForm.attachments && newLetterForm.attachments.length > 0))}
+                        onChange={() =>
+                          setNewLetterForm({
+                            ...newLetterForm,
+                            hasAttachment: true,
+                          })
+                        }
+                        className="hidden"
+                      />
+                      <span>پیوست دارد</span>
+                    </label>
+                  </div>
                 </div>
 
-                {newLetterForm.attachments.length > 0 ? (
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {newLetterForm.attachments.map((file, i) => (
-                      <span
-                        key={i}
-                        className="inline-flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 border dark:border-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-bold px-2.5 py-1 rounded-lg"
-                      >
-                        <FileText size={12} className="text-purple-600" />
-                        <span className="truncate max-w-[150px]">
-                          {file.fileName}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveAttachment(i)}
-                          className="text-red-500 hover:text-red-700 font-bold"
-                        >
-                          <X size={13} />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-[11px] text-slate-400">
-                    هیچ فایلی الصاق نشده است.
+                {/* If letter has attachments, show description and preset options */}
+                {(newLetterForm.hasAttachment || (newLetterForm.attachments && newLetterForm.attachments.length > 0)) && (
+                  <div className="bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-xl p-3 space-y-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                      <label className="text-[11px] font-bold text-amber-900 dark:text-amber-200">
+                        عبارت درج‌شده در سربرگ، خروجی Word و پرینت:
+                      </label>
+                      <div className="flex flex-wrap gap-1">
+                        {[
+                          "دارد (۱ برگ)",
+                          "دارد (۲ برگ)",
+                          "دارد (۳ برگ)",
+                          "دارد (ضمائم اداری)",
+                          "دارد (لوح فشرده)",
+                        ].map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() =>
+                              setNewLetterForm({
+                                ...newLetterForm,
+                                hasAttachment: true,
+                                attachmentDescription: preset.replace(/^دارد\s*\(?|\)?$/g, "").trim(),
+                              })
+                            }
+                            className="text-[10px] px-2 py-0.5 rounded-full bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 font-bold hover:bg-amber-100 transition-colors"
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <input
+                      type="text"
+                      placeholder="مثال: ۲ برگ فاکتور رسمی، تصویر چک، یا مدارک هویتی"
+                      value={newLetterForm.attachmentDescription || ""}
+                      onChange={(e) =>
+                        setNewLetterForm({
+                          ...newLetterForm,
+                          hasAttachment: true,
+                          attachmentDescription: e.target.value,
+                        })
+                      }
+                      className="w-full bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-800/60 rounded-lg px-3 py-1.5 text-xs font-bold"
+                    />
                   </div>
                 )}
+
+                {/* Digital File Attachment Uploads */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">
+                      الصاق فایل‌های دیجیتال (اسناد، تصاویر، فاکتورها، PDF)
+                    </label>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      className="hidden"
+                      onChange={(e) => {
+                        handleAttachmentUpload(e);
+                        setNewLetterForm((prev) => ({
+                          ...prev,
+                          hasAttachment: true,
+                        }));
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-1 text-[11px] text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border dark:border-slate-700 px-3 py-1.5 rounded-lg font-bold transition-colors"
+                      disabled={uploadingAttachment}
+                    >
+                      <Upload size={13} />
+                      {uploadingAttachment
+                        ? "درحال آپلود..."
+                        : "انتخاب و الصاق فایل جدید"}
+                    </button>
+                  </div>
+
+                  {newLetterForm.attachments.length > 0 ? (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {newLetterForm.attachments.map((file, i) => (
+                        <span
+                          key={i}
+                          className="inline-flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 border dark:border-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-bold px-2.5 py-1 rounded-lg"
+                        >
+                          <FileText size={12} className="text-purple-600" />
+                          <span className="truncate max-w-[150px]">
+                            {file.fileName}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAttachment(i)}
+                            className="text-red-500 hover:text-red-700 font-bold"
+                          >
+                            <X size={13} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-slate-400">
+                      هیچ فایل دیجیتالی الصاق نشده است.
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex justify-end pt-3 border-t dark:border-slate-800">
@@ -6416,7 +6860,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
         )}
       </AnimatePresence>
 
-      {/* 1.2 CUSTOM WORD TABLE DESIGNER MODAL */}
+      {/* 1.2 SMART ENTERPRISE TABLE STUDIO MODAL */}
       <AnimatePresence>
         {showTableModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
@@ -6424,323 +6868,314 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4 text-right"
+              className="bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-2xl max-w-2xl w-full p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto text-right custom-scrollbar"
               dir="rtl"
             >
               <div className="flex items-center justify-between border-b dark:border-slate-800 pb-3">
-                <h4 className="text-sm font-black text-gray-800 dark:text-white flex items-center gap-2">
-                  <Table size={16} className="text-blue-600" />
-                  طراحی و درج جدول استاندارد (مشابه ورد)
-                </h4>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-600">
+                    <Table size={18} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-gray-800 dark:text-white">
+                      کارگاه جامع طراحی و مدیریت جداول اداری (مشابه Word)
+                    </h4>
+                    <p className="text-[11px] text-slate-400">
+                      طراحی دقیق، الگوهای رسمی مالی و حقوقی، یا الصاق مستقیم از اکسل
+                    </p>
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => setShowTableModal(false)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              {/* Quick Presets */}
-              <div>
-                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 block mb-1.5">
-                  قالب‌های سریع جدول:
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleInsertCustomTable(2, 2)}
-                    className="p-2 border rounded-lg hover:bg-blue-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors text-center border-slate-200 dark:border-slate-700"
-                  >
-                    جدول ۲ × ۲
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleInsertCustomTable(3, 3)}
-                    className="p-2 border rounded-lg hover:bg-blue-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors text-center border-slate-200 dark:border-slate-700"
-                  >
-                    جدول ۳ × ۳
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleInsertCustomTable(4, 3)}
-                    className="p-2 border rounded-lg hover:bg-blue-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors text-center border-slate-200 dark:border-slate-700"
-                  >
-                    جدول ۴ سطر × ۳ ستون
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleInsertCustomTable(5, 4)}
-                    className="p-2 border rounded-lg hover:bg-blue-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors text-center border-slate-200 dark:border-slate-700"
-                  >
-                    جدول ۵ سطر × ۴ ستون
-                  </button>
-                </div>
-              </div>
-
-              {/* Custom Rows / Cols */}
-              <div className="border-t dark:border-slate-800 pt-3 space-y-3">
-                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 block">
-                  یا ابعاد دلخواه خود را تعیین نمایید:
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[10px] text-slate-400 block mb-1">تعداد سطرها:</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={50}
-                      value={customTableRows}
-                      onChange={(e) => setCustomTableRows(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-full text-xs p-2 border rounded-lg border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-center font-mono font-bold"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-400 block mb-1">تعداد ستون‌ها:</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={15}
-                      value={customTableCols}
-                      onChange={(e) => setCustomTableCols(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-full text-xs p-2 border rounded-lg border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-center font-mono font-bold"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowTableModal(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
-                >
-                  انصراف
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInsertCustomTable(customTableRows, customTableCols)}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5"
-                >
-                  <Table size={14} />
-                  درج جدول در سند
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* 1.3 GOOGLE DOCS & GOOGLE SHEETS SUITE MODAL */}
-      <AnimatePresence>
-        {showGoogleModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-2xl max-w-2xl w-full p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto text-right"
-              dir="rtl"
-            >
-              <div className="flex items-center justify-between border-b dark:border-slate-800 pb-3">
-                <h4 className="text-sm font-black text-gray-800 dark:text-white flex items-center gap-2">
-                  <FileSpreadsheet size={16} className="text-emerald-600" />
-                  مجموعه ابزارهای Google Docs و Google Sheets
-                </h4>
-                <button
-                  type="button"
-                  onClick={() => setShowGoogleModal(false)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1"
                 >
                   <X size={18} />
                 </button>
               </div>
 
               {/* Navigation Tabs */}
-              <div className="flex border-b border-slate-200 dark:border-slate-700 text-xs font-bold gap-2">
+              <div className="flex border-b border-slate-200 dark:border-slate-800 text-xs font-bold gap-2">
                 <button
                   type="button"
-                  onClick={() => setGoogleTab("docs")}
-                  className={`pb-2 px-3 border-b-2 transition-colors flex items-center gap-1.5 ${
-                    googleTab === "docs"
-                      ? "border-sky-600 text-sky-600 dark:text-sky-400"
-                      : "border-transparent text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  <FileText size={14} />
-                  Google Docs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setGoogleTab("sheets")}
-                  className={`pb-2 px-3 border-b-2 transition-colors flex items-center gap-1.5 ${
-                    googleTab === "sheets"
-                      ? "border-emerald-600 text-emerald-600 dark:text-emerald-400"
-                      : "border-transparent text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  <FileSpreadsheet size={14} />
-                  Google Sheets
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setGoogleTab("table-importer")}
-                  className={`pb-2 px-3 border-b-2 transition-colors flex items-center gap-1.5 ${
-                    googleTab === "table-importer"
-                      ? "border-amber-600 text-amber-600 dark:text-amber-400"
+                  onClick={() => setTableModalTab("custom")}
+                  className={`pb-2.5 px-3 border-b-2 transition-all flex items-center gap-1.5 ${
+                    tableModalTab === "custom" || tableModalTab === "grid"
+                      ? "border-blue-600 text-blue-600 dark:text-blue-400 font-black"
                       : "border-transparent text-slate-500 hover:text-slate-700"
                   }`}
                 >
                   <Table size={14} />
-                  ایمپورت جدول از گوگل شیت / اکسل
+                  طراحی سفارشی جدول
                 </button>
                 <button
                   type="button"
-                  onClick={() => setGoogleTab("embed")}
-                  className={`pb-2 px-3 border-b-2 transition-colors flex items-center gap-1.5 ${
-                    googleTab === "embed"
-                      ? "border-purple-600 text-purple-600 dark:text-purple-400"
+                  onClick={() => setTableModalTab("templates")}
+                  className={`pb-2.5 px-3 border-b-2 transition-all flex items-center gap-1.5 ${
+                    tableModalTab === "templates"
+                      ? "border-purple-600 text-purple-600 dark:text-purple-400 font-black"
                       : "border-transparent text-slate-500 hover:text-slate-700"
                   }`}
                 >
-                  <Layers size={14} />
-                  اتصال زنده (Live Embed)
+                  <FileSpreadsheet size={14} />
+                  قالب‌های آماده اداری و مالی
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTableModalTab("paste")}
+                  className={`pb-2.5 px-3 border-b-2 transition-all flex items-center gap-1.5 ${
+                    tableModalTab === "paste"
+                      ? "border-amber-600 text-amber-600 dark:text-amber-400 font-black"
+                      : "border-transparent text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <Copy size={14} />
+                  پیست مستقیم از اکسل (Paste)
                 </button>
               </div>
 
-              {/* Tab Content */}
-              {googleTab === "docs" && (
-                <div className="space-y-4 py-2">
-                  <div className="p-4 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/40 rounded-xl space-y-2">
-                    <h5 className="font-bold text-sky-900 dark:text-sky-300 text-xs flex items-center gap-1.5">
-                      <ExternalLink size={14} />
-                      انتقال و ادامه ویرایش متن در Google Docs:
-                    </h5>
-                    <p className="text-[11px] text-sky-800 dark:text-sky-200 leading-relaxed">
-                      با کلیک روی دکمه زیر، متن فعلی نامه در کلیپ‌بورد رایانه شما ذخیره شده و یک سند جدید و خالی در Google Docs در تب جدید باز می‌شود. می‌توانید به راحتی با زدن کلید <strong>Ctrl+V</strong> متن را در گوگل داکس درج نموده و به صورت گروهی یا آنلاین ویرایش نمایید.
-                    </p>
+              {/* TAB 1: Custom Table Designer */}
+              {(tableModalTab === "custom" || tableModalTab === "grid") && (
+                <div className="space-y-4 py-1">
+                  {/* Presets */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block mb-1.5">
+                      قالب‌های ابعاد سریع:
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {[
+                        { r: 2, c: 2, label: "جدول ۲ × ۲" },
+                        { r: 3, c: 3, label: "جدول ۳ × ۳" },
+                        { r: 4, c: 3, label: "۴ سطر × ۳ ستون" },
+                        { r: 5, c: 4, label: "۵ سطر × ۴ ستون" },
+                      ].map((item) => (
+                        <button
+                          key={item.label}
+                          type="button"
+                          onClick={() => {
+                            setCustomTableRows(item.r);
+                            setCustomTableCols(item.c);
+                          }}
+                          className={`p-2 border rounded-xl text-xs font-bold transition-all text-center ${
+                            customTableRows === item.r && customTableCols === item.c
+                              ? "bg-blue-50 dark:bg-blue-950/40 border-blue-500 text-blue-700 dark:text-blue-300 shadow-xs"
+                              : "border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+
+                  {/* Dimension inputs */}
+                  <div className="grid grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div>
+                      <label className="text-[11px] text-slate-600 dark:text-slate-300 font-bold block mb-1">
+                        تعداد سطرها:
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={50}
+                        value={customTableRows}
+                        onChange={(e) => setCustomTableRows(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-full text-xs p-2 border rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-center font-mono font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-slate-600 dark:text-slate-300 font-bold block mb-1">
+                        تعداد ستون‌ها:
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={12}
+                        value={customTableCols}
+                        onChange={(e) => setCustomTableCols(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-full text-xs p-2 border rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-center font-mono font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Interactive Visual Mini-Preview */}
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                      پیش‌نمایش ساختار جدول:
+                    </label>
+                    <div className="border border-slate-300 dark:border-slate-700 rounded-xl p-3 bg-white dark:bg-slate-950 overflow-x-auto max-h-48 custom-scrollbar">
+                      <table className="w-full border-collapse text-[10px] text-center">
+                        <thead>
+                          <tr className="bg-blue-900 text-white font-bold">
+                            {Array.from({ length: Math.min(customTableCols, 8) }).map((_, cIdx) => (
+                              <th key={cIdx} className="border border-blue-800 p-1.5">
+                                ستون {toPersianDigits(cIdx + 1)}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Array.from({ length: Math.min(customTableRows - 1, 4) }).map((_, rIdx) => (
+                            <tr key={rIdx} className={rIdx % 2 === 1 ? "bg-slate-50 dark:bg-slate-900/60" : ""}>
+                              {Array.from({ length: Math.min(customTableCols, 8) }).map((_, cIdx) => (
+                                <td key={cIdx} className="border border-slate-200 dark:border-slate-800 p-1.5 text-slate-400">
+                                  داده
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2 border-t dark:border-slate-800">
                     <button
                       type="button"
-                      onClick={handleOpenGoogleDocs}
-                      className="bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition-all"
+                      onClick={() => setShowTableModal(false)}
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
                     >
-                      <ExternalLink size={14} />
-                      کپی متن و باز کردن سند جدید در Google Docs
+                      انصراف
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        const cleanText = (newLetterForm.content || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-                        if (navigator.clipboard) {
-                          navigator.clipboard.writeText(cleanText).catch(() => {});
-                        }
-                        alert("متن نامه با موفقیت در کلیپ‌بورد کپی شد.");
-                      }}
-                      className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold px-4 py-2.5 rounded-xl transition-all"
+                      onClick={() => handleInsertCustomTable(customTableRows, customTableCols)}
+                      className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-md transition-all"
                     >
-                      فقط کپی کردن متن نامه
+                      <Table size={14} />
+                      درج جدول سفارشی در نامه
                     </button>
                   </div>
                 </div>
               )}
 
-              {googleTab === "sheets" && (
-                <div className="space-y-4 py-2">
-                  <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 rounded-xl space-y-2">
-                    <h5 className="font-bold text-emerald-900 dark:text-emerald-300 text-xs flex items-center gap-1.5">
-                      <FileSpreadsheet size={14} />
-                      کار با صفحه گسترده Google Sheets:
-                    </h5>
-                    <p className="text-[11px] text-emerald-800 dark:text-emerald-200 leading-relaxed">
-                      برای طراحی جداول مالی، لیست پرسنل، صورت‌حساب‌ها یا محاسبات دقیق سازمانی، می‌توانید صفحه گسترده جدیدی در Google Sheets ایجاد کنید. پس از وارد کردن داده‌ها، کافیست سلول‌ها را کپی کرده و در تب <strong>«ایمپورت جدول از گوگل شیت»</strong> پیست کنید تا بلافاصله به جدول رسمی در نامه تبدیل شود.
-                    </p>
+              {/* TAB 2: Pre-built Corporate Table Templates */}
+              {tableModalTab === "templates" && (
+                <div className="space-y-3 py-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Template 1: Invoice */}
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-3 bg-slate-50/60 dark:bg-slate-800/40 hover:border-blue-400 transition-all flex flex-col justify-between">
+                      <div className="space-y-1 mb-2">
+                        <div className="flex items-center gap-1.5 text-blue-700 dark:text-blue-300 font-extrabold text-xs">
+                          <Table size={14} />
+                          صورت‌حساب مالی و پیش‌فاکتور
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          شامل ستون‌های ردیف، شرح کالا، تعداد، واحد، مبلغ واحد و جمع کل ریالی
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleInsertTemplateTable("invoice")}
+                        className="w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors"
+                      >
+                        درج این جدول در نامه
+                      </button>
+                    </div>
+
+                    {/* Template 2: Meeting Minutes */}
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-3 bg-slate-50/60 dark:bg-slate-800/40 hover:border-emerald-400 transition-all flex flex-col justify-between">
+                      <div className="space-y-1 mb-2">
+                        <div className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300 font-extrabold text-xs">
+                          <CheckCheck size={14} />
+                          جدول صورتجلسه و مصوبات
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          شامل ردیف، شرح مصوبه، مسئول پیگیری، مهلت اقدام و وضعیت پیشرفت
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleInsertTemplateTable("minutes")}
+                        className="w-full py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors"
+                      >
+                        درج این جدول در نامه
+                      </button>
+                    </div>
+
+                    {/* Template 3: Technical Specs */}
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-3 bg-slate-50/60 dark:bg-slate-800/40 hover:border-slate-400 transition-all flex flex-col justify-between">
+                      <div className="space-y-1 mb-2">
+                        <div className="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 font-extrabold text-xs">
+                          <SlidersHorizontal size={14} />
+                          مقایسه مشخصات فنی و بازرگانی
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          شامل ردیف، پارامتر فنی، مشخصات درخواستی، مشخصات ارائه‌شده و انطباق
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleInsertTemplateTable("technical")}
+                        className="w-full py-1.5 rounded-lg bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs transition-colors"
+                      >
+                        درج این جدول در نامه
+                      </button>
+                    </div>
+
+                    {/* Template 4: Personnel List */}
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-3 bg-slate-50/60 dark:bg-slate-800/40 hover:border-purple-400 transition-all flex flex-col justify-between">
+                      <div className="space-y-1 mb-2">
+                        <div className="flex items-center gap-1.5 text-purple-700 dark:text-purple-300 font-extrabold text-xs">
+                          <Users size={14} />
+                          اطلاعات پرسنل و اعضای هیئت
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          شامل ردیف، نام و نام خانوادگی، شماره ملی، سمت سازمانی و شماره تماس
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleInsertTemplateTable("personnel")}
+                        className="w-full py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs transition-colors"
+                      >
+                        درج این جدول در نامه
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleOpenGoogleSheets}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition-all"
-                  >
-                    <FileSpreadsheet size={14} />
-                    باز کردن Google Sheets در تب جدید
-                  </button>
                 </div>
               )}
 
-              {googleTab === "table-importer" && (
-                <div className="space-y-3 py-2">
+              {/* TAB 3: Direct Excel Paste Importer */}
+              {tableModalTab === "paste" && (
+                <div className="space-y-3 py-1">
                   <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/40 rounded-xl">
-                    <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-                      <strong>راهنما:</strong> سلول‌های جدول خود را در اکسل یا Google Sheets انتخاب کرده، کلیدهای <strong>Ctrl+C</strong> را بزنید، سپس در کادر زیر کلیک کرده و با <strong>Ctrl+V</strong> پیست نمایید. سیستم به صورت هوشمند داده‌ها را به جدول مرتب اداری تبدیل می‌کند.
+                    <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed font-bold">
+                      راهنمای کپی از اکسل: سلول‌های مورد نظر را در Excel یا نرم‌افزار Calc با موس انتخاب کرده و کلیدهای Ctrl+C را فشار دهید. سپس در کادر زیر کلیک کرده و با کلیدهای Ctrl+V الصاق (Paste) نمایید.
                     </p>
                   </div>
                   <div>
                     <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                      داده‌های کپی شده از گوگل شیت یا اکسل:
+                      داده‌های کپی شده از اکسل:
                     </label>
                     <textarea
-                      rows={5}
+                      rows={6}
                       value={sheetDataText}
                       onChange={(e) => setSheetDataText(e.target.value)}
-                      placeholder="داده‌های کپی شده از Google Sheets یا Excel را اینجا Paste کنید..."
+                      placeholder="سلول‌های کپی شده از Excel را اینجا Paste کنید..."
                       className="w-full text-xs p-3 border rounded-xl border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-mono focus:ring-2 focus:ring-amber-500"
                     />
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleInsertSheetTable(sheetDataText)}
-                    disabled={!sheetDataText.trim()}
-                    className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow flex items-center gap-2 transition-all"
-                  >
-                    <Table size={14} />
-                    تبدیل و درج جدول اداری در نامه
-                  </button>
-                </div>
-              )}
-
-              {googleTab === "embed" && (
-                <div className="space-y-3 py-2">
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                      لینک اشتراک‌گذاری سند یا شیت گوگل (Google Doc / Sheet Link):
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="url"
-                        value={googleEmbedUrl}
-                        onChange={(e) => setGoogleEmbedUrl(e.target.value)}
-                        placeholder="https://docs.google.com/document/d/... یا https://docs.google.com/spreadsheets/d/..."
-                        className="flex-1 text-xs p-2.5 border rounded-xl border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-mono text-left"
-                        dir="ltr"
-                      />
-                    </div>
+                  <div className="flex justify-end gap-2 pt-2 border-t dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setShowTableModal(false)}
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                    >
+                      انصراف
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleInsertSheetTable(sheetDataText)}
+                      disabled={!sheetDataText.trim()}
+                      className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow flex items-center gap-2 transition-all"
+                    >
+                      <Table size={14} />
+                      تبدیل هوشمند و درج جدول در نامه
+                    </button>
                   </div>
-                  {googleEmbedUrl ? (
-                    <div className="border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden h-96 w-full bg-slate-100 dark:bg-slate-800">
-                      <iframe
-                        src={googleEmbedUrl}
-                        className="w-full h-full border-none"
-                        title="Google Doc or Sheet Live Preview"
-                      />
-                    </div>
-                  ) : (
-                    <div className="p-8 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-center text-xs text-slate-400">
-                      لینک سند یا صفحه گسترده گوگل را وارد کنید تا پیش‌نمایش یا محیط کار آن در این بخش بارگذاری گردد.
-                    </div>
-                  )}
                 </div>
               )}
-
-              <div className="flex justify-end pt-3 border-t dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowGoogleModal(false)}
-                  className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold px-5 py-2 rounded-xl"
-                >
-                  بستن
-                </button>
-              </div>
             </motion.div>
           </div>
         )}

@@ -6,10 +6,11 @@ import {
     ChevronDown, ChevronRight, ChevronUp, AlertTriangle, AlertCircle, Send, Bell, BellRing, 
     CheckCircle2, ArrowUpRight, ArrowDownRight, ArrowUp, Sparkles, Share2, Scale, Layers, 
     Package, Boxes, Filter, ExternalLink, Info, Download, FileDown, CheckSquare, Clock, Sliders, Navigation, Building2,
-    Printer
+    Printer, FileSpreadsheet
 } from 'lucide-react';
 import { TradeStage } from '../types';
 import { buildWarehouseOverviewPrintHtml } from '../utils/warehouseOverviewPrintHtml';
+import { exportWarehouseOverviewToExcel, WarehouseExcelScope } from '../utils/warehouseOverviewExcel';
 import { AiWarehouseAdvisorModal } from './AiWarehouseAdvisorModal';
 
 interface WarehouseItem {
@@ -74,6 +75,8 @@ export const WarehouseOverviewTab: React.FC = () => {
     // PDF Direct Download States
     const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
     const [pdfScopeMenuOpen, setPdfScopeMenuOpen] = useState(false);
+    const [excelMenuOpen, setExcelMenuOpen] = useState(false);
+    const [isExportingExcel, setIsExportingExcel] = useState(false);
     const [isAiAdvisorOpen, setIsAiAdvisorOpen] = useState(false);
 
     // Variance Filter State
@@ -1613,6 +1616,43 @@ export const WarehouseOverviewTab: React.FC = () => {
         }
     };
 
+    // Excel Export function (Instant, multi-sheet, fully formatted with RTL)
+    const handleExportExcel = (scope: WarehouseExcelScope = 'all') => {
+        setIsExportingExcel(true);
+        setExcelMenuOpen(false);
+        try {
+            const rawExport = getExportDataset();
+            const dataset = {
+                summary: {
+                    ...rawExport.summary,
+                    report1Jalali,
+                    report2Jalali,
+                    totalLastYearContainers,
+                    diffContainers,
+                    totalLastYearDollars,
+                    diffDollars
+                },
+                yarnItems: rawExport.yarnItems,
+                rawItems: rawExport.rawItems,
+                purchasingGoods,
+                domesticPurchases,
+                goodsInCustoms,
+                commercialGoods,
+                growthItems,
+                negativeItems,
+                allComparedItems,
+                getGroupChildItems
+            };
+
+            exportWarehouseOverviewToExcel(dataset, scope);
+        } catch (err: any) {
+            console.error("Failed to export Excel:", err);
+            alert("خطا در ایجاد خروجی اکسل: " + (err.message || ""));
+        } finally {
+            setIsExportingExcel(false);
+        }
+    };
+
     // Bot dispatch function
     const handleSendNegativeAlert = async () => {
         setIsSendingBot(true);
@@ -1953,6 +1993,81 @@ export const WarehouseOverviewTab: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
+                        {/* Excel Export Dropdown */}
+                        <div className="relative">
+                            <button
+                                type="button"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExcelMenuOpen(!excelMenuOpen); }}
+                                disabled={isExportingExcel}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-3.5 py-2 text-xs font-black transition-all flex items-center gap-1.5 shadow-md shadow-emerald-600/20 cursor-pointer"
+                                title="خروجی و دانلود فایل اکسل (Excel) چند شیته شکیل و کامل از گزارش انبار"
+                            >
+                                {isExportingExcel ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileSpreadsheet className="w-3.5 h-3.5 text-white" />}
+                                <span>خروجی اکسل (Excel)</span>
+                                <ChevronDown className="w-3 h-3 text-emerald-100 mr-0.5" />
+                            </button>
+
+                            {excelMenuOpen && (
+                                <div className="absolute left-0 mt-1 w-80 bg-white rounded-2xl shadow-2xl border border-emerald-200 z-50 p-2.5 space-y-2 text-right animate-fade-in" dir="rtl">
+                                    <div className="text-[10px] font-black text-emerald-800 px-1 py-0.5 border-b border-emerald-100 flex items-center justify-between">
+                                        <span className="flex items-center gap-1">
+                                            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                                            <span>دانلود فایل اکسل شکیل و کامل (.xlsx):</span>
+                                        </span>
+                                        <button type="button" onClick={() => setExcelMenuOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-3 h-3" /></button>
+                                    </div>
+
+                                    {/* Option 1: Full Workbook (8 Sheets) */}
+                                    <div className="p-2 rounded-xl bg-emerald-50/70 border border-emerald-100 hover:border-emerald-300 transition-colors">
+                                        <div className="text-xs font-bold text-slate-900 mb-1 flex items-center gap-1">
+                                            <span>📊 فایل اکسل جامع (۸ کاربرگ کامل با تفکیک RTL)</span>
+                                        </div>
+                                        <p className="text-[10px] text-slate-500 mb-1.5 leading-relaxed">شامل خلاصه تراز، نخ‌های تولیدی، مواد اولیه، بارهای در راه، گمرک، تجاری و ماتریس کسری</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleExportExcel('all')}
+                                            className="w-full py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-xs"
+                                        >
+                                            <Download className="w-3 h-3" />
+                                            <span>دانلود اکسل جامع (پیشنهادی)</span>
+                                        </button>
+                                    </div>
+
+                                    {/* Option 2: Executive Summary Only */}
+                                    <div className="p-2 rounded-xl bg-slate-50 border border-slate-100 hover:border-blue-200 transition-colors">
+                                        <div className="text-xs font-bold text-slate-800 mb-1 flex items-center gap-1">
+                                            <span>📑 شیت خلاصه مدیریتی و شاخص‌های کلان</span>
+                                        </div>
+                                        <p className="text-[10px] text-slate-500 mb-1.5">موازنه کلی وزنی، کانتینری و ارزی زنجیره تامین</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleExportExcel('summary')}
+                                            className="w-full py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                                        >
+                                            <Download className="w-3 h-3" />
+                                            <span>دانلود خلاصه تراز مدیریتی</span>
+                                        </button>
+                                    </div>
+
+                                    {/* Option 3: Negative Variance & Alerts */}
+                                    <div className="p-2 rounded-xl bg-slate-50 border border-slate-100 hover:border-amber-200 transition-colors">
+                                        <div className="text-xs font-bold text-slate-800 mb-1 flex items-center gap-1">
+                                            <span>⚠️ شیت اقلام دارای افت ذخیره و کسری منفی</span>
+                                        </div>
+                                        <p className="text-[10px] text-slate-500 mb-1.5">گزارش نظارتی اقلام نیازمند اقدام فوری بازرگانی</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleExportExcel('variance')}
+                                            className="w-full py-1.5 px-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                                        >
+                                            <Download className="w-3 h-3" />
+                                            <span>دانلود ماتریس کسری و هشدار</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
                         {/* Direct Print Button */}
                         <button
                             type="button"

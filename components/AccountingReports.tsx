@@ -55,7 +55,12 @@ import {
     UserX,
     UserCheck,
     RotateCcw,
-    CheckCheck
+    CheckCheck,
+    SlidersHorizontal,
+    ShieldAlert,
+    ShieldCheck,
+    Plus,
+    UserMinus
 } from 'lucide-react';
 import * as jalaali from 'jalaali-js';
 import { 
@@ -149,11 +154,41 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
 
+    // --- PERMANENT EXCLUDED PERSONS STATE (Saved to localStorage) ---
+    const [permanentExcluded, setPermanentExcluded] = useState<{
+        code: string;
+        name: string;
+        excludeFrom: 'all' | 'debtors' | 'creditors';
+        reason?: string;
+        addedAt: number;
+    }[]>(() => {
+        try {
+            const saved = localStorage.getItem('SAYAN_PERMANENT_EXCLUDED_PERSONS');
+            return saved ? JSON.parse(saved) : [];
+        } catch {
+            return [];
+        }
+    });
+    const [isExcludeManagerOpen, setIsExcludeManagerOpen] = useState(false);
+    const [excludePersonSearch, setExcludePersonSearch] = useState('');
+    const [excludePersonScope, setExcludePersonScope] = useState<'debtors' | 'creditors' | 'all'>('debtors');
+    const [excludePersonReason, setExcludePersonReason] = useState('');
+    const [excludePersonSelectedCode, setExcludePersonSelectedCode] = useState('');
+
+    // Save permanent exclusion whenever it changes
+    useEffect(() => {
+        try {
+            localStorage.setItem('SAYAN_PERMANENT_EXCLUDED_PERSONS', JSON.stringify(permanentExcluded));
+        } catch (e) {
+            console.error('Failed to save permanent excluded persons:', e);
+        }
+    }, [permanentExcluded]);
+
     // --- TAB 1: TRAZ STATE ---
     const [trazData, setTrazData] = useState<any[]>([]);
     const [trazSearch, setTrazSearch] = useState('');
-    const [trazCategory, setTrazCategory] = useState('all'); // all, customers, suppliers, personnel, shareholders, debtors, creditors
-    const [trazSortBy, setTrazSortBy] = useState<'code' | 'name' | 'balance' | 'abs_balance' | 'bed' | 'bes'>('code');
+    const [trazCategory, setTrazCategory] = useState('16'); // 16 (all), 11 (suppliers), 12 (customers), 13 (personnel), 14 (shareholders), 15 (others), debtors, creditors
+    const [trazSortBy, setTrazSortBy] = useState<'sayan_hierarchy' | 'code' | 'name' | 'balance' | 'abs_balance' | 'bed' | 'bes'>('sayan_hierarchy');
     const [trazSortOrder, setTrazSortOrder] = useState<'asc' | 'desc'>('asc');
     const [excludedTrazCodes, setExcludedTrazCodes] = useState<string[]>([]);
     const [showOnlyExcluded, setShowOnlyExcluded] = useState(false);
@@ -776,7 +811,7 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                 return next;
             } else {
                 const next = [...prev, code];
-                toast.info('شخص از گزارش و محاسبات خارج شد');
+                toast('شخص از گزارش و محاسبات خارج شد', { icon: 'ℹ️' });
                 return next;
             }
         });
@@ -791,7 +826,7 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
     const handleDeselectAllTraz = () => {
         const visibleCodes = getFilteredTraz(true).map(t => t.code);
         setExcludedTrazCodes(prev => Array.from(new Set([...prev, ...visibleCodes])));
-        toast.info('تمامی اشخاص نمایان از گزارش خارج شدند');
+        toast('تمامی اشخاص نمایان از گزارش خارج شدند', { icon: 'ℹ️' });
     };
 
     const handleInvertTrazSelection = () => {
@@ -805,19 +840,195 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
             });
             return next;
         });
-        toast.info('وضعیت انتخاب اشخاص معکوس شد');
+        toast('وضعیت انتخاب اشخاص معکوس شد', { icon: 'ℹ️' });
     };
 
-    // Filter and categorise Traz data
+    // Helper: Determine Sayan ERP Layer & Category Info for any account
+    const getSayanCategoryInfo = (item: any): { code: '11' | '12' | '13' | '14' | '15' | '16'; label: string; priority: number } => {
+        const codeStr = String(item.code || '').trim();
+        const moeinStr = String(item.moein || '').trim();
+        const nameStr = String(item.name || '').trim();
+        const tag = String(item.categoryTag || item.category || '').trim();
+
+        // 14 سهامداران
+        if (
+            tag === 'shareholders' || 
+            tag === '14' || 
+            nameStr.includes('سهام') || 
+            nameStr.includes('سهامدار') || 
+            nameStr.includes('شرکا') || 
+            nameStr.includes('هیات مدیره') || 
+            nameStr.includes('هیئت مدیره') || 
+            codeStr.startsWith('314') || 
+            codeStr.startsWith('315') || 
+            codeStr.startsWith('32') || 
+            moeinStr.startsWith('314') || 
+            moeinStr.startsWith('315') || 
+            moeinStr.startsWith('32')
+        ) {
+            return { code: '14', label: '۱۴ سهامداران', priority: 4 };
+        }
+
+        // 13 پرسنل
+        if (
+            tag === 'personnel' || 
+            tag === '13' || 
+            nameStr.includes('پرسنل') || 
+            nameStr.includes('کارمند') || 
+            nameStr.includes('همکار') || 
+            codeStr.startsWith('113') || 
+            codeStr.startsWith('313') || 
+            moeinStr.startsWith('113') || 
+            moeinStr.startsWith('313') || 
+            nameStr.startsWith('آقای ') || 
+            nameStr.startsWith('خانم ')
+        ) {
+            return { code: '13', label: '۱۳ پرسنل', priority: 3 };
+        }
+
+        // 11 تامین کنندگان
+        if (
+            tag === 'suppliers' || 
+            tag === '11' || 
+            moeinStr.startsWith('31') || 
+            codeStr.startsWith('31') || 
+            codeStr.startsWith('3') || 
+            nameStr.includes('تامین') || 
+            nameStr.includes('پتروشیمی') || 
+            nameStr.includes('فروشنده') || 
+            nameStr.includes('بورس کالا')
+        ) {
+            return { code: '11', label: '۱۱ تامین کنندگان', priority: 1 };
+        }
+
+        // 12 مشتریان
+        if (
+            tag === 'customers' || 
+            tag === '12' || 
+            moeinStr.startsWith('11') || 
+            codeStr.startsWith('11') || 
+            codeStr.startsWith('1') || 
+            nameStr.includes('مشتری') || 
+            nameStr.includes('صنایع') || 
+            nameStr.includes('بافندگی') || 
+            nameStr.includes('نساجی') || 
+            nameStr.includes('خریدار') || 
+            nameStr.includes('شرکت')
+        ) {
+            return { code: '12', label: '۱۲ مشتریان', priority: 2 };
+        }
+
+        // 15 سایر
+        return { code: '15', label: '۱۵ سایر', priority: 5 };
+    };
+
+    // Permanent Excluded Persons Handlers
+    const handleAddPermanentExclude = (code: string, name: string, scope: 'debtors' | 'creditors' | 'all' = 'debtors', reason: string = '') => {
+        if (!code) {
+            toast.error('کد شخص مشخص نیست.');
+            return;
+        }
+        setPermanentExcluded(prev => {
+            const filtered = prev.filter(p => p.code !== code);
+            return [
+                ...filtered,
+                {
+                    code,
+                    name: name || `شخص ${code}`,
+                    excludeFrom: scope,
+                    reason: reason.trim(),
+                    addedAt: Date.now()
+                }
+            ];
+        });
+        toast.success(`شخص ${name || code} به لیست استثنای دائمی (${scope === 'debtors' ? 'بدهکاران' : scope === 'creditors' ? 'بستانکاران' : 'کل گزارش'}) اضافه شد.`);
+    };
+
+    const handleRemovePermanentExclude = (code: string) => {
+        setPermanentExcluded(prev => prev.filter(p => p.code !== code));
+        toast.success(`شخص با کد ${code} از لیست استثنا حذف و به گزارشات بازگردانده شد.`);
+    };
+
+    const handleTogglePermanentExcludeScope = (code: string) => {
+        setPermanentExcluded(prev => prev.map(p => {
+            if (p.code !== code) return p;
+            const nextScope: 'debtors' | 'creditors' | 'all' = 
+                p.excludeFrom === 'debtors' ? 'creditors' : 
+                p.excludeFrom === 'creditors' ? 'all' : 'debtors';
+            return { ...p, excludeFrom: nextScope };
+        }));
+    };
+
+    const handleAutoExcludeAllShareholders = () => {
+        const shareholders = trazData.filter(item => {
+            const cat = getSayanCategoryInfo(item);
+            return cat.code === '14';
+        });
+
+        if (shareholders.length === 0) {
+            toast.error('هیچ شخص سهامداری در لیست تراز یافت نشد.');
+            return;
+        }
+
+        setPermanentExcluded(prev => {
+            const map = new Map(prev.map(p => [p.code, p]));
+            shareholders.forEach(sh => {
+                if (!map.has(sh.code)) {
+                    map.set(sh.code, {
+                        code: sh.code,
+                        name: sh.name,
+                        excludeFrom: 'debtors',
+                        reason: 'سهامدار / شریک (شناسایی خودکار سایان)',
+                        addedAt: Date.now()
+                    });
+                }
+            });
+            return Array.from(map.values());
+        });
+        toast.success(`${shareholders.length} حساب سهامدار به لیست استثنای گزارش بدهکاران افزوده شد.`);
+    };
+
+    const handleClearAllPermanentExcluded = () => {
+        if (!window.confirm('آیا مطمئن هستید که می‌خواهید تمام اشخاص را از لیست استثنای دائمی حذف کنید؟')) return;
+        setPermanentExcluded([]);
+        toast.success('تمامی استثناهای دائمی پاک شدند.');
+    };
+
+    // Filter and categorise Traz data (Synchronized with Sayan ERP Logic & Permanent Exclusions)
     const getFilteredTraz = (includeExcluded: boolean = false) => {
         let items = trazData.filter(item => {
-            const isExcluded = excludedTrazCodes.includes(item.code);
+            const codeStr = String(item.code || '').trim();
+
+            // 1. Check Permanent Exclusion Rules
+            const permRule = permanentExcluded.find(p => p.code === codeStr);
+            if (permRule) {
+                if (permRule.excludeFrom === 'all') {
+                    if (showOnlyExcluded) return true;
+                    if (!includeExcluded) return false;
+                } else if (permRule.excludeFrom === 'debtors') {
+                    // Exclude from debtors category or from general list when debtor
+                    if (trazCategory === 'debtors' || (item.balance > 0 && (trazCategory === 'all' || trazCategory === '16'))) {
+                        if (showOnlyExcluded) return true;
+                        if (!includeExcluded) return false;
+                    }
+                } else if (permRule.excludeFrom === 'creditors') {
+                    // Exclude from creditors category or from general list when creditor
+                    if (trazCategory === 'creditors' || (item.balance < 0 && (trazCategory === 'all' || trazCategory === '16'))) {
+                        if (showOnlyExcluded) return true;
+                        if (!includeExcluded) return false;
+                    }
+                }
+            }
+
+            // 2. Check Temporary Selection Checkbox Exclusions
+            const isTempExcluded = excludedTrazCodes.includes(item.code);
             if (showOnlyExcluded) {
-                if (!isExcluded) return false;
-            } else if (!includeExcluded && isExcluded) {
+                if (!isTempExcluded && !permRule) return false;
+            } else if (!includeExcluded && isTempExcluded) {
                 return false;
             }
 
+            // 3. Search Filter
             const searchLower = trazSearch.toLowerCase().trim();
             const matchesSearch = !searchLower || 
                                   item.name.toLowerCase().includes(searchLower) || 
@@ -825,26 +1036,19 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
             
             if (!matchesSearch) return false;
 
-            const codeStr = String(item.code || '');
-            const moeinStr = String(item.moein || '');
-            const nameStr = String(item.name || '');
+            // 4. Sayan Layer / Categories Filter (11 تامین، 12 مشتری، 13 پرسنل، 14 سهامدار، 15 سایر، 16 همه)
+            const catInfo = getSayanCategoryInfo(item);
 
-            // Categories split logic
-            if (trazCategory === 'customers') {
-                const isPersonnel = codeStr.startsWith('113') || codeStr.startsWith('114') || nameStr.includes('پرسنل') || nameStr.includes('کارمند') || nameStr.includes('آقای') || nameStr.includes('خانم');
-                const isSupplier = moeinStr.startsWith('31') || codeStr.startsWith('31') || codeStr.startsWith('3');
-                const isShareholder = codeStr.startsWith('314') || codeStr.startsWith('315') || codeStr.startsWith('32') || nameStr.includes('سهام');
-                const isCustomer = moeinStr.startsWith('11') || codeStr.startsWith('11') || codeStr.startsWith('1') || nameStr.includes('مشتری') || nameStr.includes('خریدار') || nameStr.includes('صنایع') || nameStr.includes('بافندگی') || nameStr.includes('نساجی');
-                return !isPersonnel && !isSupplier && !isShareholder && isCustomer;
-            } else if (trazCategory === 'suppliers') {
-                const isShareholder = codeStr.startsWith('314') || codeStr.startsWith('315') || codeStr.startsWith('32') || nameStr.includes('سهام');
-                const isPersonnel = codeStr.startsWith('313') || nameStr.includes('پرسنل') || nameStr.includes('کارمند');
-                const isSupplier = moeinStr.startsWith('31') || codeStr.startsWith('31') || codeStr.startsWith('3') || nameStr.includes('تامین') || nameStr.includes('فروشنده') || nameStr.includes('پتروشیمی');
-                return !isShareholder && !isPersonnel && isSupplier;
-            } else if (trazCategory === 'personnel') {
-                return moeinStr.startsWith('113') || moeinStr.startsWith('313') || codeStr.startsWith('113') || codeStr.startsWith('313') || nameStr.includes('پرسنل') || nameStr.includes('همکار') || nameStr.includes('کارمند') || nameStr.includes('آقای') || nameStr.includes('خانم');
-            } else if (trazCategory === 'shareholders') {
-                return moeinStr.startsWith('314') || moeinStr.startsWith('315') || moeinStr.startsWith('32') || codeStr.startsWith('314') || codeStr.startsWith('315') || nameStr.includes('سهام') || nameStr.includes('سهامدار') || nameStr.includes('هیئت');
+            if (trazCategory === '11' || trazCategory === 'suppliers') {
+                return catInfo.code === '11';
+            } else if (trazCategory === '12' || trazCategory === 'customers') {
+                return catInfo.code === '12';
+            } else if (trazCategory === '13' || trazCategory === 'personnel') {
+                return catInfo.code === '13';
+            } else if (trazCategory === '14' || trazCategory === 'shareholders') {
+                return catInfo.code === '14';
+            } else if (trazCategory === '15' || trazCategory === 'others') {
+                return catInfo.code === '15';
             } else if (trazCategory === 'debtors') {
                 return item.balance > 0;
             } else if (trazCategory === 'creditors') {
@@ -853,13 +1057,22 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
             return true;
         });
 
-        // Dynamic Sorting
+        // 5. Dynamic Sorting (With Sayan Layer Hierarchy as primary default)
         items.sort((a, b) => {
             let res = 0;
-            if (trazSortBy === 'abs_balance') {
-                res = Math.abs(b.balance) - Math.abs(a.balance);
+            if (trazSortBy === 'sayan_hierarchy') {
+                const catA = getSayanCategoryInfo(a);
+                const catB = getSayanCategoryInfo(b);
+                if (catA.priority !== catB.priority) {
+                    res = catA.priority - catB.priority;
+                } else {
+                    // Within the same Sayan layer, sort by code numerically
+                    res = a.code.localeCompare(b.code, 'fa', { numeric: true });
+                }
+            } else if (trazSortBy === 'abs_balance') {
+                res = Math.abs(b.balance || 0) - Math.abs(a.balance || 0);
             } else if (trazSortBy === 'balance') {
-                res = b.balance - a.balance;
+                res = (b.balance || 0) - (a.balance || 0);
             } else if (trazSortBy === 'bed') {
                 res = (b.bed || 0) - (a.bed || 0);
             } else if (trazSortBy === 'bes') {
@@ -869,7 +1082,7 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
             } else if (trazSortBy === 'code') {
                 res = a.code.localeCompare(b.code, 'fa', { numeric: true });
             } else {
-                res = Math.abs(b.balance) - Math.abs(a.balance);
+                res = Math.abs(b.balance || 0) - Math.abs(a.balance || 0);
             }
             return trazSortOrder === 'desc' ? res : -res;
         });
@@ -963,19 +1176,23 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
     };
 
     const handlePrintTrazReport = (type: 'bed' | 'bes' | 'both', returnHtml: boolean = false) => {
-        const fullList = getFilteredTraz();
+        const fullList = getFilteredTraz(false);
         const sortedList = fullList
             .filter(t => type === 'both' ? t.balance !== 0 : (type === 'bed' ? t.balance > 0 : t.balance < 0))
-            .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
+            .sort((a, b) => {
+                if (type === 'bed') return (b.balance || 0) - (a.balance || 0); // بیشترین بدهی به کمترین
+                if (type === 'bes') return Math.abs(b.balance || 0) - Math.abs(a.balance || 0); // بیشترین طلب به کمترین
+                return Math.abs(b.balance || 0) - Math.abs(a.balance || 0);
+            });
 
-        const title = type === 'both' ? 'گزارش مانده بدهکاران و بستانکاران' : (type === 'bed' ? 'گزارش مانده بدهکاران (صعودی به نزولی)' : 'گزارش مانده بستانکاران (صعودی به نزولی)');
+        const title = type === 'both' ? 'گزارش مانده بدهکاران و بستانکاران (سورت بیشترین به کمترین)' : (type === 'bed' ? 'گزارش مانده بدهکاران (سورت از بیشترین به کمترین)' : 'گزارش مانده بستانکاران (سورت از بیشترین به کمترین)');
         const docHtml = `
             <html dir="rtl" lang="fa">
             <head>
                 <meta charset="utf-8">
                 <title>${title}</title>
                 <style>
-                    body { font-family: 'Tahoma', 'Segoe UI', sans-serif; padding: 25px; background: #fff; color: #333; }
+                    body { font-family: 'Tahoma', 'Segoe UI', sans-serif; padding: 25px; background: #fff; color: #333; direction: rtl; }
                     .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0f172a; padding-bottom: 15px; margin-bottom: 25px; }
                     .header h1 { margin: 0; font-size: 20px; color: #0f172a; }
                     .header p { margin: 4px 0 0; font-size: 13px; color: #475569; }
@@ -1045,11 +1262,11 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
         }
     };
 
-    // Export Traz (Debtors / Creditors / Full / Current View) to professional Excel matching the PDF layout
+    // Export Traz (Debtors / Creditors / Full / Current View) to professional Excel (Auto-sorted Highest to Lowest & 100% RTL)
     const handleExportTrazExcel = async (type: 'bed' | 'bes' | 'both' | 'current') => {
         const fullList = getFilteredTraz(false);
-        const list = type === 'current' 
-            ? fullList 
+        let list = type === 'current' 
+            ? [...fullList] 
             : fullList.filter(t => type === 'both' ? t.balance !== 0 : (type === 'bed' ? t.balance > 0 : t.balance < 0));
 
         if (list.length === 0) {
@@ -1057,7 +1274,20 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
             return;
         }
 
-        const loadingToast = toast.loading('در حال ساخت فایل اکسل تراز...');
+        // Auto sort highest to lowest:
+        if (type === 'bed') {
+            list.sort((a, b) => (b.balance || 0) - (a.balance || 0)); // از بیشترین بدهی به کمترین بدهی
+        } else if (type === 'bes') {
+            list.sort((a, b) => Math.abs(b.balance || 0) - Math.abs(a.balance || 0)); // از بیشترین بستانکاری (طلب) به کمترین
+        } else if (type === 'both') {
+            list.sort((a, b) => Math.abs(b.balance || 0) - Math.abs(a.balance || 0)); // از بیشترین مانده تعهد به کمترین
+        } else if (type === 'current') {
+            if (trazSortBy === 'abs_balance' || trazSortBy === 'balance') {
+                list.sort((a, b) => Math.abs(b.balance || 0) - Math.abs(a.balance || 0));
+            }
+        }
+
+        const loadingToast = toast.loading('در حال ساخت فایل اکسل راست به چپ با سورت بیشترین به کمترین...');
         try {
             const ExcelJSModule = await import('exceljs');
             const ExcelJS = (ExcelJSModule as any).default || ExcelJSModule;
@@ -1066,21 +1296,29 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
             wb.created = new Date();
 
             let typeLabel = 'تراز بدهکاران و بستانکاران';
-            if (type === 'bed') typeLabel = 'مانده بدهکاران';
-            else if (type === 'bes') typeLabel = 'مانده بستانکاران';
+            if (type === 'bed') typeLabel = 'مانده بدهکاران (سورت بیشترین به کمترین)';
+            else if (type === 'bes') typeLabel = 'مانده بستانکاران (سورت بیشترین به کمترین)';
             else if (type === 'current') {
                 const catMap: Record<string, string> = {
-                    all: 'تمام حساب‌ها',
-                    customers: 'مشتریان (حساب‌های دریافتنی)',
-                    suppliers: 'تامین‌کنندگان (حساب‌های پرداختنی)',
-                    personnel: 'پرسنل و همکاران',
-                    shareholders: 'سهام‌داران و شرکا',
-                    debtors: 'بدهکاران',
-                    creditors: 'بستانکاران'
+                    '16': 'همه اشخاص (تمام دسته‌ها)',
+                    'all': 'همه اشخاص (تمام دسته‌ها)',
+                    '11': '۱۱ تامین‌کنندگان (حساب‌های پرداختنی)',
+                    'suppliers': '۱۱ تامین‌کنندگان (حساب‌های پرداختنی)',
+                    '12': '۱۲ مشتریان (حساب‌های دریافتنی)',
+                    'customers': '۱۲ مشتریان (حساب‌های دریافتنی)',
+                    '13': '۱۳ پرسنل و همکاران',
+                    'personnel': '۱۳ پرسنل و همکاران',
+                    '14': '۱۴ سهام‌داران و شرکا',
+                    'shareholders': '۱۴ سهام‌داران و شرکا',
+                    '15': '۱۵ سایر اشخاص',
+                    'others': '۱۵ سایر اشخاص',
+                    'debtors': 'بدهکاران',
+                    'creditors': 'بستانکاران'
                 };
                 typeLabel = `تراز اشخاص - ${catMap[trazCategory] || 'نمای جاری'}`;
             }
 
+            // Right-to-Left (RTL) Worksheet setup
             const ws = wb.addWorksheet(typeLabel.substring(0, 31), {
                 views: [{ rtl: true, showGridLines: true }]
             });
@@ -1108,15 +1346,16 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
             const dateFromStr = dateFrom || 'ابتدا';
             const dateToStr = dateTo || 'امروز';
             const sortLabelMap: Record<string, string> = {
+                sayan_hierarchy: 'سورت استاندارد لایه‌های سایان (۱۱ تا ۱۵)',
                 code: 'کد تفصیلی (سایان)',
                 name: 'نام الفبایی',
                 balance: 'مانده حساب',
-                abs_balance: 'بیشترین تعهد مالی',
+                abs_balance: 'بیشترین مانده به کمترین',
                 bed: 'گردش بدهکار',
                 bes: 'گردش بستانکار'
             };
             const infoRow = ws.addRow([
-                `دوره مالی: از ${dateFromStr} تا ${dateToStr}  |  سورت: ${sortLabelMap[trazSortBy] || 'استاندارد سایان'} (${trazSortOrder === 'asc' ? 'صعودی' : 'نزولی'})  |  تاریخ: ${formatDateToJalali(new Date().toISOString())}  |  تعداد: ${list.length}`
+                `دوره مالی: از ${dateFromStr} تا ${dateToStr}  |  سورت: ${type === 'bed' ? 'بیشترین بدهی به کمترین' : type === 'bes' ? 'بیشترین طلب به کمترین' : sortLabelMap[trazSortBy] || 'بیشترین به کمترین'}  |  جهت: راست به چپ (RTL)  |  تاریخ: ${formatDateToJalali(new Date().toISOString())}  |  تعداد: ${list.length}`
             ]);
             ws.mergeCells('A2:G2');
             infoRow.height = 24;
@@ -4792,36 +5031,38 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
 
                         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
                             <div>
-                                <h2 className="text-xl font-bold text-slate-800">مانده بدهکاران و بستانکاران</h2>
-                                <p className="text-xs text-slate-500 mt-1">تراز اشخاص، سورت شده، با امکان فیلتر، تفکیک دسته‌بندی، خروج اشخاص و خروجی اکسل و PDF</p>
+                                <h2 className="text-xl font-bold text-slate-800">مانده بدهکاران و بستانکاران (تراز سایان ERP)</h2>
+                                <p className="text-xs text-slate-500 mt-1">سورت مطابق پارامترهای سایان، تفکیک بر اساس لایه‌ها (۱۱ تا ۱۵)، مدیریت هوشمند اشخاص مستثنی و خروجی اکسل و PDF</p>
                             </div>
                             
                             <div className="flex flex-wrap items-center gap-2">
                                 <select 
-                                    className="border border-slate-300 rounded-lg py-2 px-3 text-xs bg-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs cursor-pointer"
+                                    className="border border-slate-300 rounded-lg py-2 px-3 text-xs bg-white font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs cursor-pointer"
                                     value={trazCategory}
                                     onChange={(e) => setTrazCategory(e.target.value)}
                                 >
-                                    <option value="all">📂 تمام دسته‌ها (همه اشخاص)</option>
-                                    <option value="customers">👥 مشتریان (حساب‌های دریافتنی)</option>
-                                    <option value="suppliers">🏭 تامین‌کنندگان (حساب‌های پرداختنی)</option>
-                                    <option value="personnel">💼 پرسنل و همکاران</option>
-                                    <option value="shareholders">🏛 سهام‌داران و شرکا</option>
+                                    <option value="16">📂 ۱۶ همه اشخاص (تمام لایه‌ها)</option>
+                                    <option value="11">🏭 ۱۱ تامین‌کنندگان (حساب‌های پرداختنی)</option>
+                                    <option value="12">👥 ۱۲ مشتریان (حساب‌های دریافتنی)</option>
+                                    <option value="13">💼 ۱۳ پرسنل و همکاران</option>
+                                    <option value="14">🏛 ۱۴ سهام‌داران و شرکا</option>
+                                    <option value="15">📦 ۱۵ سایر اشخاص</option>
                                     <option value="debtors">🔴 فقط بدهکاران (مانده مثبت)</option>
                                     <option value="creditors">🟢 فقط بستانکاران (مانده منفی)</option>
                                 </select>
 
                                 <select 
-                                    className="border border-slate-300 rounded-lg py-2 px-3 text-xs bg-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs cursor-pointer"
+                                    className="border border-slate-300 rounded-lg py-2 px-3 text-xs bg-white font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs cursor-pointer max-w-[280px]"
                                     value={trazSortBy}
                                     onChange={(e: any) => setTrazSortBy(e.target.value)}
                                 >
-                                    <option value="code">سورت استاندارد سایان: کد تفصیلی (عددی)</option>
-                                    <option value="name">سورت: نام شخص / شرکت (الفبایی)</option>
-                                    <option value="balance">سورت: مانده حساب (بدهکار به بستانکار)</option>
-                                    <option value="abs_balance">سورت: بیشترین تعهد مالی (قدر مطلق)</option>
-                                    <option value="bed">سورت: مجموع بدهکار (بیشترین گردش)</option>
-                                    <option value="bes">سورت: مجموع بستانکار (بیشترین گردش)</option>
+                                    <option value="sayan_hierarchy">⚡ سورت استاندارد سایان (لایه‌ها: ۱۱ تا ۱۵)</option>
+                                    <option value="abs_balance">💰 بیشترین مانده تعهد (از بیشترین به کمترین)</option>
+                                    <option value="code">🔢 کد تفصیلی سایان (عددی)</option>
+                                    <option value="name">🔤 نام شخص / شرکت (الفبایی)</option>
+                                    <option value="balance">⚖️ مانده حساب (بدهکار به بستانکار)</option>
+                                    <option value="bed">📈 مجموع بدهکار (بیشترین گردش)</option>
+                                    <option value="bes">📉 مجموع بستانکار (بیشترین گردش)</option>
                                 </select>
 
                                 <button 
@@ -4838,7 +5079,7 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                     <Search className="absolute right-2.5 top-2.5 h-4 w-4 text-slate-400" />
                                     <input 
                                         type="text"
-                                        placeholder="جستجوی نام یا کد..." 
+                                        placeholder="جستجوی نام، کد، لایه..." 
                                         className="w-full pl-3 pr-8 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                                         value={trazSearch}
                                         onChange={(e) => setTrazSearch(e.target.value)}
@@ -4847,12 +5088,30 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                             </div>
                         </div>
 
-                        {/* Fast Action Toolbar (Excel, PDF, Exclude / Select Controls) */}
+                        {/* Fast Action Toolbar (Excel, PDF, Exclude Manager, Select Controls) */}
                         <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200/80">
                             <div className="flex flex-wrap items-center gap-2">
+                                {/* Permanent Excluded Persons Manager Button */}
+                                <button
+                                    type="button"
+                                    onClick={() => setIsExcludeManagerOpen(true)}
+                                    className="px-3 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 active:scale-95"
+                                    title="مدیریت لیست اشخاصی که هیچگاه در گزارش بدهکاران یا بستانکاران نمی‌آیند"
+                                >
+                                    <ShieldAlert className="w-4 h-4 text-amber-200" />
+                                    <span>مدیریت اشخاص مستثنی</span>
+                                    {permanentExcluded.length > 0 && (
+                                        <span className="bg-amber-900/60 text-amber-200 px-1.5 py-0.2 rounded-full text-[10px] font-black border border-amber-400/30">
+                                            {permanentExcluded.length}
+                                        </span>
+                                    )}
+                                </button>
+
+                                <div className="h-5 w-px bg-slate-300 mx-1 hidden sm:block" />
+
                                 <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
                                     <Filter className="w-3.5 h-3.5 text-slate-500" />
-                                    عملیات انتخاب و خروج:
+                                    انتخاب سریع:
                                 </span>
                                 <button
                                     type="button"
@@ -4866,7 +5125,7 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                     type="button"
                                     onClick={handleDeselectAllTraz}
                                     className="px-2.5 py-1 bg-white hover:bg-slate-100 text-rose-700 border border-rose-200 rounded-md text-xs font-medium transition-colors cursor-pointer shadow-2xs"
-                                    title="خروج تمام اشخاص لیست از گزارش"
+                                    title="خروج موقت تمام اشخاص لیست از گزارش"
                                 >
                                     خروج همه
                                 </button>
@@ -4876,7 +5135,7 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                     className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-md text-xs font-medium transition-colors cursor-pointer shadow-2xs"
                                     title="معکوس کردن انتخاب‌ها"
                                 >
-                                    معکوس‌سازی انتخاب
+                                    معکوس‌سازی
                                 </button>
                             </div>
 
@@ -5083,7 +5342,7 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                             </div>
                                         </th>
                                         <th className="p-3 font-bold text-slate-700 w-24 text-center">تشخیص</th>
-                                        <th className="p-3 font-bold text-slate-700 w-44 text-center">عملیات</th>
+                                        <th className="p-3 font-bold text-slate-700 w-48 text-center">عملیات</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 bg-white">
@@ -5100,25 +5359,44 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                         </tr>
                                     ) : (
                                         filteredTraz.map((row, idx) => {
+                                            const codeStr = String(row.code || '').trim();
                                             const isExcluded = excludedTrazCodes.includes(row.code);
+                                            const permRule = permanentExcluded.find(p => p.code === codeStr);
+                                            const catInfo = getSayanCategoryInfo(row);
+
                                             return (
-                                                <tr key={row.code || idx} className={`hover:bg-slate-50/80 transition-colors ${isExcluded ? 'bg-amber-50/40 opacity-60' : ''}`}>
+                                                <tr key={row.code || idx} className={`hover:bg-slate-50/80 transition-colors ${isExcluded ? 'bg-amber-50/40 opacity-60' : (permRule ? 'bg-amber-50/20' : '')}`}>
                                                     <td className="p-3 text-center">
                                                         <input 
                                                             type="checkbox"
                                                             checked={!isExcluded}
                                                             onChange={() => toggleExcludeTraz(row.code)}
                                                             className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                                            title={isExcluded ? 'کلیک برای بازگردانی به گزارش' : 'کلیک برای خروج از گزارش'}
+                                                            title={isExcluded ? 'کلیک برای بازگردانی به گزارش' : 'کلیک برای خروج موقت از گزارش'}
                                                         />
                                                     </td>
                                                     <td className="p-3 text-slate-400 text-center font-medium">{idx + 1}</td>
-                                                    <td className="p-3 font-mono text-slate-600 font-medium">{row.code}</td>
+                                                    <td className="p-3 font-mono text-slate-600 font-medium">
+                                                        <div className="flex items-center gap-1">
+                                                            <span>{row.code}</span>
+                                                            <span className="text-[9px] px-1 py-0.2 rounded bg-slate-100 text-slate-600 font-bold" title={catInfo.label}>
+                                                                {catInfo.code}
+                                                            </span>
+                                                        </div>
+                                                    </td>
                                                     <td className="p-3 font-bold text-slate-900">
-                                                        <div className="flex items-center gap-1.5">
+                                                        <div className="flex flex-wrap items-center gap-1.5">
                                                             <span className={isExcluded ? 'line-through text-slate-500' : ''}>{row.name}</span>
                                                             {isExcluded && (
                                                                 <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-medium">خارج از گزارش</span>
+                                                            )}
+                                                            {permRule && (
+                                                                <span className="text-[10px] bg-rose-100 text-rose-800 border border-rose-200 px-1.5 py-0.5 rounded font-bold flex items-center gap-0.5" title={`استثنای دائمی: ${permRule.reason || 'بدون توضیح'}`}>
+                                                                    <ShieldAlert className="w-3 h-3 text-rose-600" />
+                                                                    <span>
+                                                                        {permRule.excludeFrom === 'debtors' ? 'مستثنی بدهکاران' : permRule.excludeFrom === 'creditors' ? 'مستثنی بستانکاران' : 'مستثنی کل گزارش'}
+                                                                    </span>
+                                                                </span>
                                                             )}
                                                         </div>
                                                     </td>
@@ -5135,7 +5413,7 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                                         </span>
                                                     </td>
                                                     <td className="p-3 text-center">
-                                                        <div className="flex items-center justify-center gap-1.5">
+                                                        <div className="flex items-center justify-center gap-1">
                                                             <button
                                                                 type="button"
                                                                 onClick={() => {
@@ -5152,10 +5430,32 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                                                 صورتحساب
                                                             </button>
 
+                                                            {/* Quick Permanent Exclude Toggle */}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    if (permRule) {
+                                                                        handleRemovePermanentExclude(codeStr);
+                                                                    } else {
+                                                                        const defaultScope = row.balance > 0 ? 'debtors' : (row.balance < 0 ? 'creditors' : 'all');
+                                                                        handleAddPermanentExclude(codeStr, row.name, defaultScope, 'ثبت سریع از جدول تراز');
+                                                                    }
+                                                                }}
+                                                                className={`px-1.5 py-1 rounded-md border text-[10px] flex items-center gap-0.5 font-bold transition-colors cursor-pointer ${
+                                                                    permRule 
+                                                                        ? 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200' 
+                                                                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-200'
+                                                                }`}
+                                                                title={permRule ? 'حذف از لیست استثنای دائمی' : 'افزودن به لیست استثنای دائمی گزارشات'}
+                                                            >
+                                                                <ShieldAlert className={`w-3 h-3 ${permRule ? 'text-amber-700' : 'text-slate-400'}`} />
+                                                                <span>{permRule ? 'مستثنی' : 'استثنا'}</span>
+                                                            </button>
+
                                                             <button
                                                                 type="button"
                                                                 onClick={() => toggleExcludeTraz(row.code)}
-                                                                className={`px-2 py-1 rounded-md border text-[10px] flex items-center gap-1 font-semibold transition-colors cursor-pointer ${
+                                                                className={`px-1.5 py-1 rounded-md border text-[10px] flex items-center gap-0.5 font-semibold transition-colors cursor-pointer ${
                                                                     isExcluded 
                                                                         ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' 
                                                                         : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200'
@@ -5196,9 +5496,13 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                     </div>
                                 ) : (
                                     filteredTraz.map((row, idx) => {
+                                        const codeStr = String(row.code || '').trim();
                                         const isExcluded = excludedTrazCodes.includes(row.code);
+                                        const permRule = permanentExcluded.find(p => p.code === codeStr);
+                                        const catInfo = getSayanCategoryInfo(row);
+
                                         return (
-                                            <div key={row.code || idx} className={`p-4 hover:bg-slate-50/50 transition-colors space-y-3 ${isExcluded ? 'bg-amber-50/40 opacity-60' : ''}`}>
+                                            <div key={row.code || idx} className={`p-4 hover:bg-slate-50/50 transition-colors space-y-3 ${isExcluded ? 'bg-amber-50/40 opacity-60' : (permRule ? 'bg-amber-50/20' : '')}`}>
                                                 <div className="flex items-start justify-between gap-2">
                                                     <div className="flex items-start gap-2">
                                                         <input 
@@ -5208,10 +5512,23 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                                             className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer mt-1"
                                                         />
                                                         <div>
-                                                            <span className="text-[10px] text-slate-400 font-medium font-mono">#{idx + 1} | کد: {row.code}</span>
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className="text-[10px] text-slate-400 font-medium font-mono">#{idx + 1} | کد: {row.code}</span>
+                                                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-bold">
+                                                                    {catInfo.label}
+                                                                </span>
+                                                            </div>
                                                             <h3 className={`text-sm font-black text-slate-900 mt-0.5 ${isExcluded ? 'line-through text-slate-500' : ''}`}>{row.name}</h3>
                                                             {isExcluded && (
-                                                                <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-medium mt-1 inline-block">خارج از گزارش</span>
+                                                                <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-medium mt-1 inline-block">خارج موقت از گزارش</span>
+                                                            )}
+                                                            {permRule && (
+                                                                <span className="text-[9px] bg-rose-100 text-rose-800 border border-rose-200 px-1.5 py-0.5 rounded font-bold mt-1 inline-flex items-center gap-0.5">
+                                                                    <ShieldAlert className="w-3 h-3 text-rose-600" />
+                                                                    <span>
+                                                                        {permRule.excludeFrom === 'debtors' ? 'مستثنی بدهکاران' : permRule.excludeFrom === 'creditors' ? 'مستثنی بستانکاران' : 'مستثنی کل تراز'}
+                                                                    </span>
+                                                                </span>
                                                             )}
                                                         </div>
                                                     </div>
@@ -5239,7 +5556,7 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                                     </div>
                                                 </div>
 
-                                                <div className="grid grid-cols-2 gap-2 pt-1">
+                                                <div className="grid grid-cols-3 gap-1.5 pt-1">
                                                     <button
                                                         type="button"
                                                         onClick={() => {
@@ -5249,22 +5566,43 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                                             setIsStatementModalOpen(true);
                                                             fetchStatement(row.code);
                                                         }}
-                                                        className="py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg border border-blue-200 text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
+                                                        className="py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg border border-blue-200 text-[11px] flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
                                                     >
-                                                        <FileText className="w-4 h-4" />
-                                                        صورتحساب ریز
+                                                        <FileText className="w-3.5 h-3.5" />
+                                                        صورتحساب
                                                     </button>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (permRule) {
+                                                                handleRemovePermanentExclude(codeStr);
+                                                            } else {
+                                                                const defaultScope = row.balance > 0 ? 'debtors' : (row.balance < 0 ? 'creditors' : 'all');
+                                                                handleAddPermanentExclude(codeStr, row.name, defaultScope, 'ثبت سریع');
+                                                            }
+                                                        }}
+                                                        className={`py-1.5 rounded-lg border text-[11px] flex items-center justify-center gap-1 font-bold transition-colors cursor-pointer shadow-xs ${
+                                                            permRule 
+                                                                ? 'bg-amber-100 text-amber-900 border-amber-300' 
+                                                                : 'bg-slate-50 text-slate-700 border-slate-200'
+                                                        }`}
+                                                    >
+                                                        <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
+                                                        <span>{permRule ? 'حذف استثنا' : 'استثنا'}</span>
+                                                    </button>
+
                                                     <button
                                                         type="button"
                                                         onClick={() => toggleExcludeTraz(row.code)}
-                                                        className={`py-2 rounded-lg border text-xs flex items-center justify-center gap-1 font-bold transition-colors cursor-pointer shadow-xs ${
+                                                        className={`py-1.5 rounded-lg border text-[11px] flex items-center justify-center gap-1 font-bold transition-colors cursor-pointer shadow-xs ${
                                                             isExcluded 
                                                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' 
                                                                 : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-rose-50 hover:text-rose-700'
                                                         }`}
                                                     >
-                                                        {isExcluded ? <UserCheck className="w-4 h-4" /> : <UserX className="w-4 h-4 text-rose-500" />}
-                                                        <span>{isExcluded ? 'بازگردانی' : 'خروج از گزارش'}</span>
+                                                        {isExcluded ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5 text-rose-500" />}
+                                                        <span>{isExcluded ? 'بازگردانی' : 'خروج'}</span>
                                                     </button>
                                                 </div>
                                             </div>
@@ -8327,6 +8665,294 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
                                     بستن
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 3. PERMANENT EXCLUDED PERSONS MANAGEMENT MODAL */}
+            {isExcludeManagerOpen && (
+                <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-fadeIn">
+                    <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-zinc-800 w-full max-w-3xl overflow-hidden flex flex-col max-h-[92vh]">
+                        {/* Modal Header */}
+                        <div className="p-4 bg-gradient-to-r from-amber-600 via-amber-700 to-amber-800 text-white flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center shrink-0">
+                                    <ShieldAlert className="w-5 h-5 text-amber-200" />
+                                </div>
+                                <div>
+                                    <h3 className="font-black text-sm sm:text-base flex items-center gap-2 text-white">
+                                        مدیریت لیست اشخاص مستثنی از گزارشات
+                                        <span className="bg-white/20 text-amber-100 text-[11px] px-2 py-0.5 rounded-full font-bold">
+                                            {permanentExcluded.length} شخص
+                                        </span>
+                                    </h3>
+                                    <p className="text-[11px] text-amber-100/90 mt-0.5">
+                                        اشخاص این لیست در گزارش‌ها، چاپ PDF و خروجی‌های اکسل تراز لحاظ نخواهند شد.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsExcludeManagerOpen(false)}
+                                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Modal Content */}
+                        <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1 text-right">
+                            {/* Add New Excluded Person Form */}
+                            <div className="bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 rounded-xl p-4 space-y-3">
+                                <h4 className="text-xs font-bold text-amber-950 dark:text-amber-200 flex items-center gap-1.5">
+                                    <Plus className="w-4 h-4 text-amber-600" />
+                                    افزودن شخص جدید به لیست مستثنیات
+                                </h4>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {/* Select from existing accounts */}
+                                    <div className="space-y-1">
+                                        <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                                            انتخاب از لیست حساب‌های موجود:
+                                        </label>
+                                        <select
+                                            className="w-full text-xs p-2 rounded-lg border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-800 dark:text-slate-100 font-medium"
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (val) {
+                                                    const targetRow = trazData.find(t => String(t.code).trim() === val);
+                                                    if (targetRow) {
+                                                        setNewExcludeCode(String(targetRow.code).trim());
+                                                        setNewExcludeName(targetRow.name || '');
+                                                    }
+                                                }
+                                            }}
+                                            defaultValue=""
+                                        >
+                                            <option value="">-- انتخاب از اشخاص تراز --</option>
+                                            {trazData.map((t, idx) => (
+                                                <option key={t.code || idx} value={String(t.code).trim()}>
+                                                    {t.code} - {t.name} ({t.balance > 0 ? `بدهکار: ${formatMoney(t.balance)}` : `بستانکار: ${formatMoney(Math.abs(t.balance))}`})
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    {/* Code Input */}
+                                    <div className="space-y-1">
+                                        <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                                            کد تفصیلی شخص:
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={newExcludeCode}
+                                            onChange={(e) => setNewExcludeCode(e.target.value)}
+                                            placeholder="مثلاً: 14001 یا 12005"
+                                            className="w-full text-xs p-2 rounded-lg border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-800 dark:text-slate-100 font-mono"
+                                        />
+                                    </div>
+
+                                    {/* Name Input */}
+                                    <div className="space-y-1">
+                                        <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                                            نام شخص یا شرکت:
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={newExcludeName}
+                                            onChange={(e) => setNewExcludeName(e.target.value)}
+                                            placeholder="نام و نام خانوادگی یا نام شرکت"
+                                            className="w-full text-xs p-2 rounded-lg border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-800 dark:text-slate-100"
+                                        />
+                                    </div>
+
+                                    {/* Scope Selection */}
+                                    <div className="space-y-1">
+                                        <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                                            دامنه استثنا:
+                                        </label>
+                                        <select
+                                            value={newExcludeScope}
+                                            onChange={(e: any) => setNewExcludeScope(e.target.value)}
+                                            className="w-full text-xs p-2 rounded-lg border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-800 dark:text-slate-100 font-bold"
+                                        >
+                                            <option value="debtors">🔴 فقط از گزارش بدهکاران حذف شود</option>
+                                            <option value="creditors">🟢 فقط از گزارش بستانکاران حذف شود</option>
+                                            <option value="all">⚪ از کل گزارش‌ها و تراز حذف شود</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Reason Input */}
+                                    <div className="sm:col-span-2 space-y-1">
+                                        <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                                            علت استثنا (اختیاری):
+                                        </label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={newExcludeReason}
+                                                onChange={(e) => setNewExcludeReason(e.target.value)}
+                                                placeholder="مثلاً: سهامدار شرکت، تسویه شده دستی، حساب متفرقه..."
+                                                className="w-full text-xs p-2 rounded-lg border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-800 dark:text-slate-100"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (!newExcludeCode.trim()) {
+                                                        toast.error('لطفاً کد شخص را وارد کنید');
+                                                        return;
+                                                    }
+                                                    handleAddPermanentExclude(
+                                                        newExcludeCode.trim(),
+                                                        newExcludeName.trim() || `کد ${newExcludeCode}`,
+                                                        newExcludeScope,
+                                                        newExcludeReason.trim() || 'ثبت دستی کاربر'
+                                                    );
+                                                    setNewExcludeCode('');
+                                                    setNewExcludeName('');
+                                                    setNewExcludeReason('');
+                                                }}
+                                                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer shrink-0 flex items-center gap-1 active:scale-95"
+                                            >
+                                                <Plus className="w-3.5 h-3.5" />
+                                                <span>افزودن</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Preset Auto-Add Buttons */}
+                                <div className="pt-2 border-t border-amber-200/70 dark:border-amber-800/30 flex flex-wrap items-center justify-between gap-2">
+                                    <span className="text-[10px] text-amber-900/80 dark:text-amber-300/80 font-medium">
+                                        پیشنهادهای سریع:
+                                    </span>
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const shareholders = trazData.filter(t => {
+                                                    const info = getSayanCategoryInfo(t);
+                                                    return info.code === '14';
+                                                });
+                                                if (shareholders.length === 0) {
+                                                    toast.error('هیچ حسابی با کد لایه ۱۴ (سهامداران) در تراز یافت نشد');
+                                                    return;
+                                                }
+                                                let addedCount = 0;
+                                                shareholders.forEach(sh => {
+                                                    const code = String(sh.code).trim();
+                                                    if (!permanentExcluded.some(p => p.code === code)) {
+                                                        handleAddPermanentExclude(code, sh.name, 'debtors', 'سهامدار و شریک (لایه ۱۴)');
+                                                        addedCount++;
+                                                    }
+                                                });
+                                                toast.success(`${addedCount} سهامدار با موفقیت به استثنای بدهکاران اضافه شدند`);
+                                            }}
+                                            className="px-2.5 py-1 bg-white dark:bg-zinc-800 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700 rounded-md text-[11px] font-bold transition-colors cursor-pointer"
+                                        >
+                                            🏛 استثنای تمام سهامداران (کد ۱۴) از بدهکاران
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Existing Excluded List */}
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                        <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                                        لیست اشخاص مستثنی شده فعلی ({permanentExcluded.length.toLocaleString('fa-IR')})
+                                    </h4>
+                                    {permanentExcluded.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (window.confirm('آیا از پاکسازی تمام اشخاص مستثنی اطمینان دارید؟')) {
+                                                    setPermanentExcluded([]);
+                                                    localStorage.removeItem('sayan_permanent_excluded_persons');
+                                                    toast.success('لیست اشخاص مستثنی پاکسازی شد');
+                                                }
+                                            }}
+                                            className="text-[11px] text-rose-600 hover:text-rose-700 font-bold cursor-pointer"
+                                        >
+                                            پاکسازی تمام لیست
+                                        </button>
+                                    )}
+                                </div>
+
+                                {permanentExcluded.length === 0 ? (
+                                    <div className="p-8 text-center bg-slate-50 dark:bg-zinc-800/40 rounded-xl border border-dashed border-slate-200 dark:border-zinc-700 text-slate-400 text-xs">
+                                        در حال حاضر هیچ شخصی در لیست استثنای دائمی قرار ندارد.
+                                    </div>
+                                ) : (
+                                    <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-hidden">
+                                        <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 dark:divide-zinc-800">
+                                            {permanentExcluded.map((item) => (
+                                                <div key={item.code} className="p-3 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800/60 flex items-center justify-between gap-3 text-xs transition-colors">
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="font-mono font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-zinc-800 px-2 py-1 rounded">
+                                                            {item.code}
+                                                        </span>
+                                                        <div>
+                                                            <div className="font-bold text-slate-800 dark:text-slate-100">
+                                                                {item.name}
+                                                            </div>
+                                                            {item.reason && (
+                                                                <div className="text-[10px] text-slate-500 mt-0.5">
+                                                                    علت: {item.reason}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2">
+                                                        {/* Clickable Scope Badge to toggle */}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleTogglePermanentExcludeScope(item.code)}
+                                                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-colors cursor-pointer ${
+                                                                item.excludeFrom === 'debtors'
+                                                                    ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                                                                    : item.excludeFrom === 'creditors'
+                                                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                                                    : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                                                            }`}
+                                                            title="کلیک برای تغییر دامنه استثنا (بدهکاران / بستانکاران / کل تراز)"
+                                                        >
+                                                            {item.excludeFrom === 'debtors' ? 'حذف از بدهکاران' : item.excludeFrom === 'creditors' ? 'حذف از بستانکاران' : 'حذف از کل تراز'}
+                                                        </button>
+
+                                                        {/* Delete button */}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemovePermanentExclude(item.code)}
+                                                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                                            title="حذف از لیست مستثنیات"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-3 sm:p-4 bg-slate-50 dark:bg-zinc-800/50 border-t border-slate-200 dark:border-zinc-800 flex justify-between items-center">
+                            <span className="text-[11px] text-slate-500">
+                                ذخیره‌شده به صورت پایدار در مرورگر
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => setIsExcludeManagerOpen(false)}
+                                className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                            >
+                                تأیید و بستن
+                            </button>
                         </div>
                     </div>
                 </div>

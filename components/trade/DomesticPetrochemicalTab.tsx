@@ -6,7 +6,7 @@ import { TradeDatePicker } from '../TradeDatePicker';
 
 interface DomesticPetrochemicalTabProps {
     record: TradeRecord;
-    onUpdateRecord: (updater: (prev: TradeRecord) => TradeRecord) => Promise<void>;
+    onUpdateRecord: (updatedRecord: TradeRecord) => Promise<void> | void;
     currentUser: User;
 }
 
@@ -94,14 +94,14 @@ export const DomesticPetrochemicalTab: React.FC<DomesticPetrochemicalTabProps> =
         if (!partial.brokerageFee) next.brokerageFee = brokerage;
         next.totalInvoiceAmount = totalInvoice;
 
-        await onUpdateRecord(prev => ({
-            ...prev,
+        await onUpdateRecord({
+            ...record,
             petrochemicalData: next,
-            sellerName: next.petrochemicalName || prev.sellerName,
-            goodsName: next.gradeName || prev.goodsName,
-            proformaNumber: next.proformaNumber || prev.proformaNumber,
-            registrationNumber: next.contractNumber || prev.registrationNumber
-        }));
+            sellerName: next.petrochemicalName || record.sellerName,
+            goodsName: next.gradeName || record.goodsName,
+            proformaNumber: next.proformaNumber || record.proformaNumber,
+            registrationNumber: next.contractNumber || record.registrationNumber
+        });
     };
 
     // Calculate final costing metrics

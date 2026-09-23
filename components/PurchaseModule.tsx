@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { 
     PurchaseRequest, PurchaseRequestStatus, User, UserRole, 
     SystemSettings, PurchaseProforma, PartMasterData, PartKardex,
-    PurchaseRequestItem, PurchaseAttachment, PurchaseAuditLog, PurchaseComment 
+    PurchaseRequestItem, PurchaseProformaItem, PurchaseAttachment, PurchaseAuditLog, PurchaseComment 
 } from '../types';
 import { 
     getPurchaseRequests, savePurchaseRequest, updatePurchaseRequest, 
@@ -20,7 +20,7 @@ import {
     Ruler, Layers, Tag, Upload, Info, FileUp, UploadCloud, Settings, Printer, FileDown, AlertCircle, X,
     GitFork, Clock, CornerUpLeft, UserCheck, FileCode, AlertTriangle, Check, ExternalLink, Paperclip, Wrench,
     FileSpreadsheet, Container, ArrowDownCircle, ArrowUpCircle, MessageSquare, Sparkles, Bot, ChevronUp, ChevronDown,
-    Crown, Briefcase, ShoppingBag, Lock, ShieldAlert
+    Crown, Briefcase, ShoppingBag, Lock, ShieldAlert, RotateCcw
 } from 'lucide-react';
 import { shareElementToChat, openSendToChat } from '../services/chatShareService';
 import { formatDate, formatCurrency, generateUUID, getCurrentShamsiDate } from '../constants';

@@ -1193,7 +1193,7 @@ export const WarehouseOverviewTab: React.FC = () => {
         const list: Array<{
             code: string;
             name: string;
-            category: 'factory' | 'raw' | 'transit' | 'customs' | 'purchasing' | 'commercial';
+            category: 'factory' | 'raw' | 'transit' | 'customs' | 'purchasing' | 'commercial' | 'domestic';
             categoryLabel: string;
             lastYearWeight: number;
             currentWeight: number;

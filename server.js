@@ -2417,6 +2417,23 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
         const meta = overview.meta || {};
         const isCumulative = meta.cumulativeFromLastYear !== undefined ? meta.cumulativeFromLastYear : true;
 
+        const excludedList = [
+            ...(Array.isArray(overview.excludedRegistrationNumbers) ? overview.excludedRegistrationNumbers : []),
+            ...(Array.isArray(meta.excludedRegistrationNumbers) ? meta.excludedRegistrationNumbers : [])
+        ].map(x => String(x).trim()).filter(Boolean);
+
+        const isItemExcluded = (item) => {
+            if (!item || excludedList.length === 0) return false;
+            const reg = item.registrationNumber ? String(item.registrationNumber).trim() : '';
+            const prof = item.proforma || item.fileNumber ? String(item.proforma || item.fileNumber).trim() : '';
+            const id = item.id ? String(item.id).trim() : '';
+            return (
+                (reg !== '' && excludedList.includes(reg)) ||
+                (prof !== '' && excludedList.includes(prof)) ||
+                (id !== '' && excludedList.includes(id))
+            );
+        };
+
         const getJalaliYear = (jalaliStr) => {
             const clean = String(jalaliStr || '').trim()
                 .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d).toString())
@@ -2658,6 +2675,16 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
         const parsedCommercialDomesticPurchases = [];
 
         for (const record of activeTradeRecords) {
+            const recordExcluded = isItemExcluded({
+                id: `com_${record.id}`,
+                registrationNumber: record.registrationNumber || record.orderRegistrationNumber,
+                proforma: record.fileNumber || record.proformaNumber || record.proforma
+            }) || (record.id && isItemExcluded({ id: String(record.id) }));
+
+            if (recordExcluded) {
+                continue;
+            }
+
             const isCompleted = record.status === 'Completed' || Boolean(record.isArchived);
 
             const isDomestic = record.purchaseType === 'domestic_bourse' || Boolean(record.petrochemicalData);
@@ -2752,10 +2779,10 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
                 .filter(Boolean)
         );
 
-        const baseCustoms = (overview.goodsInCustoms || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)));
-        const baseTransit = (overview.goodsInTransit || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)));
-        const basePurchase = (overview.purchasingGoods || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)));
-        const baseDomestic = (overview.domesticPurchases || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)));
+        const baseCustoms = (overview.goodsInCustoms || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)) && !isItemExcluded(x));
+        const baseTransit = (overview.goodsInTransit || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)) && !isItemExcluded(x));
+        const basePurchase = (overview.purchasingGoods || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)) && !isItemExcluded(x));
+        const baseDomestic = (overview.domesticPurchases || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)) && !isItemExcluded(x));
 
         const mergedBasePurchaseAndTransit = [...basePurchase, ...baseTransit];
 
@@ -2797,19 +2824,19 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
             else if (diff < 0) totalNegativeWeight += diff;
         });
 
-        (overview.goodsInCustoms || []).forEach(item => {
+        (finalGoodsInCustoms || []).forEach(item => {
             const wCurr = parseFloat(item.weight) || 0;
             if (wCurr > 0) totalPositiveWeight += wCurr;
             else if (wCurr < 0) totalNegativeWeight += wCurr;
         });
 
-        (overview.purchasingGoods || []).forEach(item => {
+        (finalPurchasingGoods || []).forEach(item => {
             const wCurr = parseFloat(item.weight) || 0;
             if (wCurr > 0) totalPositiveWeight += wCurr;
             else if (wCurr < 0) totalNegativeWeight += wCurr;
         });
 
-        (overview.domesticPurchases || []).forEach(item => {
+        (finalDomesticPurchases || []).forEach(item => {
             const wCurr = parseFloat(item.weight) || 0;
             if (wCurr > 0) totalPositiveWeight += wCurr;
             else if (wCurr < 0) totalNegativeWeight += wCurr;

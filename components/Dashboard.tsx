@@ -808,6 +808,39 @@ const Dashboard: React.FC<DashboardProps> = ({ orders: rawOrders, settings, curr
 
   useEffect(() => {
       fetchWarehouseAlert(false);
+
+      const handleLiveWarehouseUpdate = (e: any) => {
+          if (e.detail?.meta) {
+              setWarehouseOverviewData((prev: any) => ({
+                  ...(prev || {}),
+                  meta: {
+                      ...(prev?.meta || {}),
+                      ...e.detail.meta
+                  }
+              }));
+              if (e.detail.meta.totalCurrentAllWeight !== undefined) {
+                  setWarehouseAlertData({
+                      totalCurrentAllWeight: e.detail.meta.totalCurrentAllWeight,
+                      diffAllWeight: e.detail.meta.diffAllWeight,
+                      ratioAllWeight: e.detail.meta.ratioAllWeight
+                  });
+              }
+          }
+      };
+
+      const handleStorageUpdate = (e: StorageEvent) => {
+          if (e.key === 'SAYAN_EXCLUDED_REGISTRATION_NUMBERS') {
+              fetchWarehouseAlert(false);
+          }
+      };
+
+      window.addEventListener('warehouse_overview_updated', handleLiveWarehouseUpdate);
+      window.addEventListener('storage', handleStorageUpdate);
+
+      return () => {
+          window.removeEventListener('warehouse_overview_updated', handleLiveWarehouseUpdate);
+          window.removeEventListener('storage', handleStorageUpdate);
+      };
   }, []);
 
   // Automatically fetch online poem & online motivational quote on mount

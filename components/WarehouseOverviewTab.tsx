@@ -109,6 +109,8 @@ export const WarehouseOverviewTab: React.FC = () => {
     });
     const [isExcludeManagerOpen, setIsExcludeManagerOpen] = useState(false);
     const [excludeSearchTerm, setExcludeSearchTerm] = useState('');
+    const [excludeCategoryFilter, setExcludeCategoryFilter] = useState<'all' | 'customs' | 'purchasing' | 'domestic' | 'transit' | 'commercial'>('all');
+    const [excludeStatusFilter, setExcludeStatusFilter] = useState<'all' | 'excluded' | 'active'>('all');
 
     useEffect(() => {
         try {
@@ -119,7 +121,7 @@ export const WarehouseOverviewTab: React.FC = () => {
     }, [excludedRegistrationNumbers]);
 
     const isItemExcluded = (item: { id?: string; registrationNumber?: string; proforma?: string }) => {
-        if (!item) return false;
+        if (!item || excludedRegistrationNumbers.length === 0) return false;
         const reg = item.registrationNumber ? String(item.registrationNumber).trim() : '';
         const prof = item.proforma ? String(item.proforma).trim() : '';
         const id = item.id ? String(item.id).trim() : '';
@@ -146,11 +148,35 @@ export const WarehouseOverviewTab: React.FC = () => {
         });
     };
 
+    const toggleExcludeItem = (item: { id?: string; registrationNumber?: string; proforma?: string }) => {
+        if (!item) return;
+        const reg = item.registrationNumber ? String(item.registrationNumber).trim() : '';
+        const prof = item.proforma ? String(item.proforma).trim() : '';
+        const id = item.id ? String(item.id).trim() : '';
+        const cleanKey = reg || prof || id;
+        if (!cleanKey) return;
+
+        setExcludedRegistrationNumbers(prev => {
+            const isCurrentlyExcluded = (reg !== '' && prev.includes(reg)) ||
+                                        (prof !== '' && prev.includes(prof)) ||
+                                        (id !== '' && prev.includes(id));
+            if (isCurrentlyExcluded) {
+                return prev.filter(x => x !== reg && x !== prof && x !== id && x !== cleanKey);
+            } else {
+                return [...prev, cleanKey];
+            }
+        });
+    };
+
     const clearAllExclusions = () => {
         setExcludedRegistrationNumbers([]);
     };
 
-    // Filtered visible arrays for Customs, Purchasing, and Domestic tables
+    // Filtered visible arrays for Customs, Purchasing, Domestic, Transit and Commercial tables
+    const visibleGoodsInTransit = useMemo(() => {
+        return goodsInTransit.filter(item => !isItemExcluded(item));
+    }, [goodsInTransit, excludedRegistrationNumbers]);
+
     const visibleGoodsInCustoms = useMemo(() => {
         return goodsInCustoms.filter(item => !isItemExcluded(item));
     }, [goodsInCustoms, excludedRegistrationNumbers]);
@@ -163,7 +189,11 @@ export const WarehouseOverviewTab: React.FC = () => {
         return domesticPurchases.filter(item => !isItemExcluded(item));
     }, [domesticPurchases, excludedRegistrationNumbers]);
 
-    // All excludable items collected across all three pipeline tables
+    const visibleCommercialGoods = useMemo(() => {
+        return commercialGoods.filter(item => !isItemExcluded(item));
+    }, [commercialGoods, excludedRegistrationNumbers]);
+
+    // All excludable items collected across all supply chain pipeline tables
     const allExcludableItems = useMemo(() => {
         const items: Array<{
             id: string;
@@ -174,7 +204,7 @@ export const WarehouseOverviewTab: React.FC = () => {
             dollars: number;
             rialAmount?: number;
             categoryLabel: string;
-            categoryKey: 'customs' | 'purchasing' | 'domestic';
+            categoryKey: 'customs' | 'purchasing' | 'domestic' | 'transit' | 'commercial';
         }> = [];
 
         goodsInCustoms.forEach(item => {
@@ -208,7 +238,7 @@ export const WarehouseOverviewTab: React.FC = () => {
                 id: item.id,
                 registrationNumber: item.registrationNumber || '',
                 proforma: item.proforma || '',
-                cargoType: item.cargoType || 'خرید پتروشیمی',
+                cargoType: item.cargoType || (item.petrochemicalName ? `پتروشیمی ${item.petrochemicalName}` : 'خرید پتروشیمی'),
                 weight: item.weight || 0,
                 dollars: 0,
                 rialAmount: item.rialAmount || 0,
@@ -217,19 +247,71 @@ export const WarehouseOverviewTab: React.FC = () => {
             });
         });
 
+        goodsInTransit.forEach(item => {
+            items.push({
+                id: item.id,
+                registrationNumber: item.registrationNumber || '',
+                proforma: item.proforma || '',
+                cargoType: item.cargoType || 'بار در ترانزیت',
+                weight: item.weight || 0,
+                dollars: item.dollars || 0,
+                categoryLabel: 'بارهای ترانزیت',
+                categoryKey: 'transit'
+            });
+        });
+
+        commercialGoods.forEach(item => {
+            items.push({
+                id: item.id,
+                registrationNumber: item.registrationNumber || '',
+                proforma: item.proforma || '',
+                cargoType: item.itemName || 'کالای تجاری',
+                weight: item.weight || 0,
+                dollars: item.dollars || 0,
+                categoryLabel: 'کالای تجاری و متفرقه',
+                categoryKey: 'commercial'
+            });
+        });
+
         return items;
-    }, [goodsInCustoms, purchasingGoods, domesticPurchases]);
+    }, [goodsInCustoms, purchasingGoods, domesticPurchases, goodsInTransit, commercialGoods]);
 
     const filteredExcludableItems = useMemo(() => {
-        if (!excludeSearchTerm.trim()) return allExcludableItems;
-        const term = excludeSearchTerm.trim().toLowerCase();
-        return allExcludableItems.filter(item =>
-            item.cargoType.toLowerCase().includes(term) ||
-            item.registrationNumber.toLowerCase().includes(term) ||
-            item.proforma.toLowerCase().includes(term) ||
-            item.categoryLabel.toLowerCase().includes(term)
+        return allExcludableItems.filter(item => {
+            if (excludeCategoryFilter !== 'all' && item.categoryKey !== excludeCategoryFilter) {
+                return false;
+            }
+            const excluded = isItemExcluded(item);
+            if (excludeStatusFilter === 'excluded' && !excluded) return false;
+            if (excludeStatusFilter === 'active' && excluded) return false;
+
+            if (excludeSearchTerm.trim()) {
+                const term = excludeSearchTerm.trim().toLowerCase();
+                const matches = (item.cargoType && item.cargoType.toLowerCase().includes(term)) ||
+                                (item.registrationNumber && item.registrationNumber.toLowerCase().includes(term)) ||
+                                (item.proforma && item.proforma.toLowerCase().includes(term)) ||
+                                (item.categoryLabel && item.categoryLabel.toLowerCase().includes(term)) ||
+                                (item.id && item.id.toLowerCase().includes(term));
+                if (!matches) return false;
+            }
+            return true;
+        });
+    }, [allExcludableItems, excludeSearchTerm, excludeCategoryFilter, excludeStatusFilter, excludedRegistrationNumbers]);
+
+    const excludeAllFiltered = () => {
+        const keysToAdd = filteredExcludableItems.map(item => item.registrationNumber || item.proforma || item.id).filter(Boolean);
+        setExcludedRegistrationNumbers(prev => {
+            const next = new Set([...prev, ...keysToAdd]);
+            return Array.from(next);
+        });
+    };
+
+    const includeAllFiltered = () => {
+        const keysToRemove = new Set(
+            filteredExcludableItems.flatMap(item => [item.registrationNumber, item.proforma, item.id]).filter(Boolean)
         );
-    }, [allExcludableItems, excludeSearchTerm]);
+        setExcludedRegistrationNumbers(prev => prev.filter(key => !keysToRemove.has(key)));
+    };
 
     // Dynamic category overrides for Sayan items
     const [itemCategories, setItemCategories] = useState<Record<string, 'raw' | 'factory' | 'other'>>({});
@@ -873,6 +955,7 @@ export const WarehouseOverviewTab: React.FC = () => {
                 domesticPurchases: domesticPurchases.filter(r => !r.id.startsWith('com_')),
                 commercialGoods,
                 itemCategories,
+                excludedRegistrationNumbers,
                 meta: {
                     reportDate,
                     signature,
@@ -893,7 +976,8 @@ export const WarehouseOverviewTab: React.FC = () => {
                     totalCurrentRawWeight,
                     totalLastYearRawWeight,
                     totalNegativeWeight,
-                    totalPositiveWeight
+                    totalPositiveWeight,
+                    excludedRegistrationNumbers
                 }
             };
 
@@ -1263,12 +1347,12 @@ export const WarehouseOverviewTab: React.FC = () => {
 
     const totalCurrentContainers = useMemo(() => {
         const bg = calculateTotalSayanSum(false, 'containers');
-        const transit = calculateCustomTableSum(goodsInTransit, 'container');
+        const transit = calculateCustomTableSum(visibleGoodsInTransit, 'container');
         const customs = calculateCustomTableSum(visibleGoodsInCustoms, 'container');
         const purchase = calculateCustomTableSum(visiblePurchasingGoods, 'container');
         const domestic = calculateCustomTableSum(visibleDomesticPurchases, 'container');
         return bg + transit + customs + purchase + domestic;
-    }, [goodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, currentOverrides, alignedYarns, alignedImported]);
+    }, [visibleGoodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, currentOverrides, alignedYarns, alignedImported]);
 
     const totalLastYearDollars = useMemo(() => {
         return calculateTotalSayanSum(true, 'dollars');
@@ -1276,12 +1360,12 @@ export const WarehouseOverviewTab: React.FC = () => {
 
     const totalCurrentDollars = useMemo(() => {
         const bg = calculateTotalSayanSum(false, 'dollars');
-        const transit = calculateCustomTableSum(goodsInTransit, 'dollars');
+        const transit = calculateCustomTableSum(visibleGoodsInTransit, 'dollars');
         const customs = calculateCustomTableSum(visibleGoodsInCustoms, 'dollars');
         const purchase = calculateCustomTableSum(visiblePurchasingGoods, 'dollars');
         const domestic = calculateCustomTableSum(visibleDomesticPurchases, 'dollars');
         return bg + transit + customs + purchase + domestic;
-    }, [goodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, currentOverrides, alignedYarns, alignedImported]);
+    }, [visibleGoodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, currentOverrides, alignedYarns, alignedImported]);
 
     // Difference and ratio formulas matching the PDF
     const diffContainers = totalCurrentContainers - totalLastYearContainers;
@@ -1313,12 +1397,12 @@ export const WarehouseOverviewTab: React.FC = () => {
 
     const totalCurrentRawWeight = useMemo(() => {
         const bg = alignedImported.reduce((sum, item) => sum + getItemValue(item.code, false, 'weight', true), 0);
-        const transit = calculateCustomTableSum(goodsInTransit, 'weight');
+        const transit = calculateCustomTableSum(visibleGoodsInTransit, 'weight');
         const customs = calculateCustomTableSum(visibleGoodsInCustoms, 'weight');
         const purchase = calculateCustomTableSum(visiblePurchasingGoods, 'weight');
         const domestic = calculateCustomTableSum(visibleDomesticPurchases, 'weight');
         return bg + transit + customs + purchase + domestic;
-    }, [alignedImported, goodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, currentOverrides, sayanCurrent]);
+    }, [alignedImported, visibleGoodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, currentOverrides, sayanCurrent]);
 
     const diffRawWeight = totalCurrentRawWeight - totalLastYearRawWeight;
     const ratioRawWeight = totalLastYearRawWeight > 0 ? (diffRawWeight / totalLastYearRawWeight) * 100 : 0;
@@ -1441,7 +1525,7 @@ export const WarehouseOverviewTab: React.FC = () => {
         });
 
         // Add Commercial Warehouse Goods (کالای تجاری / متفرقه)
-        commercialGoods.forEach((item, idx) => {
+        visibleCommercialGoods.forEach((item, idx) => {
             const wCurr = parseFloat(String(item.weight || 0)) || 0;
             const wLast = 0;
             const diff = wCurr - wLast;
@@ -1460,7 +1544,7 @@ export const WarehouseOverviewTab: React.FC = () => {
         });
 
         return list;
-    }, [alignedYarns, alignedImported, goodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, commercialGoods, lastYearOverrides, currentOverrides, sayanLastYear, sayanCurrent]);
+    }, [alignedYarns, alignedImported, visibleGoodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, visibleCommercialGoods, lastYearOverrides, currentOverrides, sayanLastYear, sayanCurrent]);
 
     // Negative Items (کالاهای منفی / دارای کاهش وزنی یا موجودی منفی)
     const negativeItems = useMemo(() => {
@@ -1550,7 +1634,7 @@ export const WarehouseOverviewTab: React.FC = () => {
                 categoryLabel: 'خریدهای داخلی پتروشیمی و بورس',
                 status: r.statusBadge || 'خرید پتروشیمی'
             })),
-            ...commercialGoods.map(r => ({
+            ...visibleCommercialGoods.map(r => ({
                 ...r,
                 name: r.itemName,
                 containers: r.container,
@@ -1608,35 +1692,45 @@ export const WarehouseOverviewTab: React.FC = () => {
                     lastUpdated: new Date().toISOString()
                 };
 
+                const metaUpdate = {
+                    reportDate,
+                    signature,
+                    report1Label,
+                    report1Jalali,
+                    report1Miladi,
+                    report2Label,
+                    report2Jalali,
+                    report2Miladi,
+                    cumulativeFromLastYear,
+                    allowedCompanies,
+                    totalCurrentAllWeight,
+                    diffAllWeight,
+                    ratioAllWeight,
+                    totalCurrentYarnsWeight,
+                    totalLastYearYarnsWeight,
+                    totalCurrentRawWeight,
+                    totalLastYearRawWeight,
+                    totalNegativeWeight: negativeItems.reduce((sum, item) => sum + item.diffWeight, 0),
+                    totalPositiveWeight: growthItems.reduce((sum, item) => sum + item.diffWeight, 0),
+                    excludedRegistrationNumbers
+                };
+
+                // Dispatch global event immediately so Dashboard widgets update in real-time
+                window.dispatchEvent(new CustomEvent('warehouse_overview_updated', {
+                    detail: {
+                        meta: metaUpdate,
+                        excludedRegistrationNumbers
+                    }
+                }));
+
                 // Sync live computed meta to server if real weights exist
                 if (totalCurrentAllWeight > 0 || totalLastYearAllWeight > 0) {
-                    const metaUpdate = {
-                        reportDate,
-                        signature,
-                        report1Label,
-                        report1Jalali,
-                        report1Miladi,
-                        report2Label,
-                        report2Jalali,
-                        report2Miladi,
-                        cumulativeFromLastYear,
-                        allowedCompanies,
-                        totalCurrentAllWeight,
-                        diffAllWeight,
-                        ratioAllWeight,
-                        totalCurrentYarnsWeight,
-                        totalLastYearYarnsWeight,
-                        totalCurrentRawWeight,
-                        totalLastYearRawWeight,
-                        totalNegativeWeight: negativeItems.reduce((sum, item) => sum + item.diffWeight, 0),
-                        totalPositiveWeight: growthItems.reduce((sum, item) => sum + item.diffWeight, 0)
-                    };
-
                     fetch('/api/warehouse-overview/data')
                         .then(r => r.json())
                         .then(currentDb => {
                             const updatedPayload = {
                                 ...(currentDb || {}),
+                                excludedRegistrationNumbers,
                                 meta: {
                                     ...(currentDb?.meta || {}),
                                     ...metaUpdate
@@ -1654,7 +1748,7 @@ export const WarehouseOverviewTab: React.FC = () => {
                 console.warn("Could not sync live dataset to window or server:", e);
             }
         }
-    }, [filteredYarns, filteredImported, goodsInTransit, goodsInCustoms, purchasingGoods, commercialGoods, growthItems, negativeItems, reportDate, totalCurrentAllWeight, totalLastYearAllWeight, diffAllWeight]);
+    }, [filteredYarns, filteredImported, visibleGoodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, visibleCommercialGoods, growthItems, negativeItems, reportDate, totalCurrentAllWeight, totalLastYearAllWeight, diffAllWeight, excludedRegistrationNumbers]);
 
     // Direct Browser Print function (100% reliable, opens native print/PDF dialog)
     const handlePrintReport = (scope: 'both' | 'overview_only' | 'variance_only' = 'both') => {
@@ -4164,6 +4258,377 @@ export const WarehouseOverviewTab: React.FC = () => {
                 report2Label={report2Label}
                 reportDate={reportDate}
             />
+
+            {/* Excluded Orders & Cargo Filter Manager Modal */}
+            {isExcludeManagerOpen && typeof document !== 'undefined' && createPortal(
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-2 sm:p-4 animation-fade-in" dir="rtl">
+                    <div 
+                        className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 w-full max-w-5xl flex flex-col max-h-[92vh] overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Header */}
+                        <div className="p-4 sm:p-5 bg-gradient-to-r from-amber-600 via-amber-700 to-orange-700 text-white flex items-center justify-between shadow-md shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-white/10 rounded-2xl backdrop-blur-md border border-white/20">
+                                    <FilterX className="w-5 h-5 sm:w-6 sm:h-6 text-amber-200" />
+                                </div>
+                                <div>
+                                    <h3 className="font-black text-sm sm:text-base flex items-center gap-2">
+                                        <span>مدیریت و حذف ثبت‌سفارش‌ها و سفارش‌های خرید از تراز انبار</span>
+                                        <span className="text-[10px] bg-white/20 text-white font-bold px-2 py-0.5 rounded-full">تولست هوشمند</span>
+                                    </h3>
+                                    <p className="text-[11px] text-amber-100 font-medium mt-0.5">
+                                        سفارش‌های خارجی و ایرانی حذف‌شده بلافاصله به صورت پویا از تراز وزنی، جداول و ویجت داشبورد کسر می‌شوند.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsExcludeManagerOpen(false)}
+                                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer"
+                                title="بستن پنجره"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Search & Category Filter Toolbar */}
+                        <div className="p-3 sm:p-4 bg-slate-50 border-b border-slate-200 space-y-3 shrink-0">
+                            {/* Search bar & Bulk actions */}
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+                                <div className="relative flex-1">
+                                    <input
+                                        type="text"
+                                        value={excludeSearchTerm}
+                                        onChange={(e) => setExcludeSearchTerm(e.target.value)}
+                                        placeholder="جستجو در شرح کالا، شماره ثبت‌سفارش، کوتاژ، پروفرما یا دسته‌بندی..."
+                                        className="w-full text-xs font-bold py-2 pr-9 pl-8 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
+                                    />
+                                    <Filter className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                                    {excludeSearchTerm && (
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setExcludeSearchTerm('')}
+                                            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                                        >
+                                            <X className="w-3.5 h-3.5" />
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    <button
+                                        type="button"
+                                        onClick={excludeAllFiltered}
+                                        disabled={filteredExcludableItems.length === 0}
+                                        className="px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-xl text-xs font-black transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                        title="حذف کلیه موارد نتایج فعلی از تراز انبار"
+                                    >
+                                        <EyeOff className="w-3.5 h-3.5 text-amber-700" />
+                                        <span>حذف همه فیلترشده‌ها</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={includeAllFiltered}
+                                        disabled={filteredExcludableItems.length === 0}
+                                        className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 rounded-xl text-xs font-black transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                        title="افزودن و محاسبه مجدد همه موارد نتایج فعلی در تراز انبار"
+                                    >
+                                        <Eye className="w-3.5 h-3.5 text-emerald-700" />
+                                        <span>فعال‌سازی همه فیلترشده‌ها</span>
+                                    </button>
+
+                                    {excludedRegistrationNumbers.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={clearAllExclusions}
+                                            className="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-900 rounded-xl text-xs font-black transition-all flex items-center gap-1 cursor-pointer"
+                                            title="پاکسازی تمام استثناها و بازگردانی همه به تراز"
+                                        >
+                                            <RefreshCw className="w-3.5 h-3.5 text-red-700" />
+                                            <span>بازیابی کلیه سفارش‌ها</span>
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Category Filter Tabs */}
+                            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs font-bold custom-scrollbar">
+                                <button
+                                    type="button"
+                                    onClick={() => setExcludeCategoryFilter('all')}
+                                    className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                                        excludeCategoryFilter === 'all'
+                                            ? 'bg-amber-600 text-white shadow-xs font-black'
+                                            : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                                    }`}
+                                >
+                                    <span>همه بخش‌ها</span>
+                                    <span className="text-[10px] bg-black/15 px-1.5 py-0.2 rounded-full font-mono">
+                                        {allExcludableItems.length.toLocaleString('fa-IR')}
+                                    </span>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setExcludeCategoryFilter('customs')}
+                                    className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                                        excludeCategoryFilter === 'customs'
+                                            ? 'bg-sky-600 text-white shadow-xs font-black'
+                                            : 'bg-white text-slate-600 hover:bg-sky-50 border border-slate-200'
+                                    }`}
+                                >
+                                    <span>🏢 بارهای در گمرک</span>
+                                    <span className="text-[10px] bg-black/15 px-1.5 py-0.2 rounded-full font-mono">
+                                        {goodsInCustoms.length.toLocaleString('fa-IR')}
+                                    </span>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setExcludeCategoryFilter('purchasing')}
+                                    className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                                        excludeCategoryFilter === 'purchasing'
+                                            ? 'bg-indigo-600 text-white shadow-xs font-black'
+                                            : 'bg-white text-slate-600 hover:bg-indigo-50 border border-slate-200'
+                                    }`}
+                                >
+                                    <span>🚢 در حال خرید و در راه</span>
+                                    <span className="text-[10px] bg-black/15 px-1.5 py-0.2 rounded-full font-mono">
+                                        {purchasingGoods.length.toLocaleString('fa-IR')}
+                                    </span>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setExcludeCategoryFilter('domestic')}
+                                    className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                                        excludeCategoryFilter === 'domestic'
+                                            ? 'bg-emerald-600 text-white shadow-xs font-black'
+                                            : 'bg-white text-slate-600 hover:bg-emerald-50 border border-slate-200'
+                                    }`}
+                                >
+                                    <span>⛽ خریدهای پتروشیمی/داخلی</span>
+                                    <span className="text-[10px] bg-black/15 px-1.5 py-0.2 rounded-full font-mono">
+                                        {domesticPurchases.length.toLocaleString('fa-IR')}
+                                    </span>
+                                </button>
+
+                                {commercialGoods.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setExcludeCategoryFilter('commercial')}
+                                        className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                                            excludeCategoryFilter === 'commercial'
+                                                ? 'bg-teal-600 text-white shadow-xs font-black'
+                                                : 'bg-white text-slate-600 hover:bg-teal-50 border border-slate-200'
+                                        }`}
+                                    >
+                                        <span>🏬 کالای تجاری</span>
+                                        <span className="text-[10px] bg-black/15 px-1.5 py-0.2 rounded-full font-mono">
+                                            {commercialGoods.length.toLocaleString('fa-IR')}
+                                        </span>
+                                    </button>
+                                )}
+
+                                {/* Status Filters (All / Excluded / Active) */}
+                                <div className="mr-auto flex items-center gap-1 bg-slate-200/80 p-0.5 rounded-xl shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => setExcludeStatusFilter('all')}
+                                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                                            excludeStatusFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                                        }`}
+                                    >
+                                        همه
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setExcludeStatusFilter('excluded')}
+                                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 ${
+                                            excludeStatusFilter === 'excluded' ? 'bg-amber-500 text-white shadow-xs font-black' : 'text-amber-800 hover:text-amber-950'
+                                        }`}
+                                    >
+                                        <span>🚫 حذف‌شده</span>
+                                        <span className="font-mono">({allExcludableItems.filter(isItemExcluded).length})</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setExcludeStatusFilter('active')}
+                                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 ${
+                                            excludeStatusFilter === 'active' ? 'bg-emerald-600 text-white shadow-xs font-black' : 'text-emerald-800 hover:text-emerald-950'
+                                        }`}
+                                    >
+                                        <span>✅ فعال</span>
+                                        <span className="font-mono">({allExcludableItems.filter(item => !isItemExcluded(item)).length})</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Items Table */}
+                        <div className="flex-1 overflow-y-auto overflow-x-auto custom-scrollbar p-3 sm:p-4">
+                            <table className="w-full text-xs text-center border-collapse min-w-[760px]">
+                                <thead>
+                                    <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 sticky top-0 z-10 shadow-2xs">
+                                        <th className="py-2.5 px-2 text-right">#</th>
+                                        <th className="py-2.5 px-2.5 text-right">دسته / منبع</th>
+                                        <th className="py-2.5 px-3 text-right">شرح سفارش / کالا</th>
+                                        <th className="py-2.5 px-2.5">شماره ثبت سفارش</th>
+                                        <th className="py-2.5 px-2.5">پروفرما / کوتاژ</th>
+                                        <th className="py-2.5 px-2.5">وزن (kg)</th>
+                                        <th className="py-2.5 px-2.5">ارزش مالی</th>
+                                        <th className="py-2.5 px-2.5">وضعیت در تراز و ویجت</th>
+                                        <th className="py-2.5 px-2.5">عملیات</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {filteredExcludableItems.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={9} className="py-12 text-center text-slate-400 font-medium">
+                                                هیچ سفارشی با شرایط جستجو و فیلترهای انتخابی یافت نشد.
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        filteredExcludableItems.map((item, idx) => {
+                                            const excluded = isItemExcluded(item);
+                                            return (
+                                                <tr 
+                                                    key={item.id || idx} 
+                                                    className={`transition-colors ${
+                                                        excluded 
+                                                            ? 'bg-amber-50/60 hover:bg-amber-50 dark:bg-amber-950/20 text-slate-400' 
+                                                            : 'hover:bg-slate-50 text-slate-700'
+                                                    }`}
+                                                >
+                                                    <td className="py-2.5 px-2 text-right font-mono font-bold text-slate-400">
+                                                        {(idx + 1).toLocaleString('fa-IR')}
+                                                    </td>
+                                                    <td className="py-2.5 px-2.5 text-right">
+                                                        <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold inline-flex items-center gap-1 ${
+                                                            item.categoryKey === 'customs' ? 'bg-sky-50 text-sky-800 border border-sky-200' :
+                                                            item.categoryKey === 'purchasing' ? 'bg-indigo-50 text-indigo-800 border border-indigo-200' :
+                                                            item.categoryKey === 'domestic' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' :
+                                                            item.categoryKey === 'transit' ? 'bg-purple-50 text-purple-800 border border-purple-200' :
+                                                            'bg-teal-50 text-teal-800 border border-teal-200'
+                                                        }`}>
+                                                            {item.categoryLabel}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-2.5 px-3 text-right font-bold">
+                                                        <span className={excluded ? 'line-through text-slate-400' : 'text-slate-800'}>
+                                                            {item.cargoType}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-2.5 px-2.5 font-mono font-bold">
+                                                        {item.registrationNumber ? (
+                                                            <span className="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[11px]">
+                                                                {item.registrationNumber}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-slate-300">-</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="py-2.5 px-2.5 font-mono">
+                                                        {item.proforma ? (
+                                                            <span className="text-[11px] text-slate-600 font-bold">
+                                                                {item.proforma}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-slate-300">-</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="py-2.5 px-2.5 font-mono font-bold">
+                                                        <span className={excluded ? 'text-slate-400' : 'text-slate-900'}>
+                                                            {(item.weight || 0).toLocaleString('fa-IR')}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-2.5 px-2.5 font-mono">
+                                                        {item.dollars > 0 ? (
+                                                            <span className="text-emerald-600 font-bold">${item.dollars.toLocaleString('en-US')}</span>
+                                                        ) : item.rialAmount && item.rialAmount > 0 ? (
+                                                            <span className="text-slate-600">{(item.rialAmount / 10).toLocaleString('fa-IR')} ت</span>
+                                                        ) : (
+                                                            <span className="text-slate-300">-</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="py-2.5 px-2.5">
+                                                        {excluded ? (
+                                                            <span className="bg-amber-100 text-amber-900 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-300 inline-flex items-center gap-1">
+                                                                <EyeOff className="w-3 h-3 text-amber-700" />
+                                                                <span>🚫 حذف از تراز و ویجت</span>
+                                                            </span>
+                                                        ) : (
+                                                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200 inline-flex items-center gap-1">
+                                                                <Check className="w-3 h-3 text-emerald-600" />
+                                                                <span>✅ محاسبه در تراز</span>
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                    <td className="py-2.5 px-2.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => toggleExcludeItem(item)}
+                                                            className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 mx-auto cursor-pointer ${
+                                                                excluded
+                                                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                                                                    : 'bg-red-50 hover:bg-red-100 text-red-700 border border-red-200'
+                                                            }`}
+                                                            title={excluded ? 'بازگردانی به تراز انبار و ویجت' : 'حذف و عدم محاسبه در تراز و ویجت'}
+                                                        >
+                                                            {excluded ? (
+                                                                <>
+                                                                    <Eye className="w-3.5 h-3.5" />
+                                                                    <span>افزودن به تراز</span>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <EyeOff className="w-3.5 h-3.5" />
+                                                                    <span>حذف از تراز</span>
+                                                                </>
+                                                            )}
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Footer Summary Bar */}
+                        <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+                            <div className="flex items-center gap-4 text-xs font-bold text-slate-700 flex-wrap">
+                                <div>
+                                    <span>کل سفارش‌ها: </span>
+                                    <strong className="font-mono text-slate-900">{allExcludableItems.length.toLocaleString('fa-IR')}</strong>
+                                </div>
+                                <div className="text-amber-800">
+                                    <span>حذف شده از تراز: </span>
+                                    <strong className="font-mono text-amber-900">{allExcludableItems.filter(isItemExcluded).length.toLocaleString('fa-IR')}</strong>
+                                </div>
+                                <div className="text-red-700">
+                                    <span>تناژ کسر شده از آمار: </span>
+                                    <strong className="font-mono text-red-800">
+                                        {(allExcludableItems.filter(isItemExcluded).reduce((sum, it) => sum + (it.weight || 0), 0) / 1000).toLocaleString('fa-IR', { maximumFractionDigits: 1 })} تن
+                                    </strong>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => setIsExcludeManagerOpen(false)}
+                                className="w-full sm:w-auto px-6 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm"
+                            >
+                                تایید و بستن
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
 
         </div>
     );

@@ -119,21 +119,28 @@ export const executeCrossPlatformPrint = async (
         if (typeof elementOrHtml === 'string') {
             contentHtml = elementOrHtml;
         } else {
-            // Clone element and copy styles
+            // Clone element and copy all document styles for 100% visual fidelity
             const clone = elementOrHtml.cloneNode(true) as HTMLElement;
+            const docStyles = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
+                .map(node => node.outerHTML)
+                .join('\n');
+            const pageOrientation = (orientation === 'landscape' || orientation === 'l') ? 'landscape' : 'portrait';
+            const pageSize = (orientation === 'landscape' || orientation === 'l') ? 'A5 landscape' : 'A4 portrait';
+
             contentHtml = `
                 <!DOCTYPE html>
                 <html dir="rtl" lang="fa">
                 <head>
                     <meta charset="utf-8">
                     <title>${title}</title>
+                    ${docStyles}
                     <style>
-                        @page { size: auto; margin: 10mm; }
-                        body { font-family: Tahoma, 'Vazirmatn', sans-serif; margin: 0; padding: 0; direction: rtl; }
-                        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                        @page { size: ${pageSize}; margin: 0; }
+                        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+                        body { font-family: 'Vazirmatn', Tahoma, sans-serif; margin: 0; padding: 0; direction: rtl; background: #ffffff !important; }
                     </style>
                 </head>
-                <body>
+                <body class="bg-white">
                     ${clone.outerHTML}
                 </body>
                 </html>

@@ -7,6 +7,7 @@ import { X, Printer, FileDown, Loader2, CheckCircle, XCircle, Pencil, Share2, Us
 import { apiCall, resolveImageUrl } from '../services/apiService';
 import { generatePdf } from '../utils/pdfGenerator'; 
 import { executeCrossPlatformPrint } from '../utils/mobilePrintService';
+import { Capacitor } from '@capacitor/core';
 import html2canvas from 'html2canvas';
 import { shareElementToChat } from '../services/chatShareService';
 import { FileViewerModal } from './FileViewerModal';
@@ -206,72 +207,106 @@ const PrintVoucher: React.FC<PrintVoucherProps> = ({ order, onClose, settings, c
   const isRevoked = order.status === OrderStatus.REVOKED;
 
   const Stamp = ({ name, title }: { name: string; title: string }) => (
-    <div className={`border-[2px] border-blue-800 text-blue-800 rounded-lg ${isCompact ? 'py-0.2 px-1' : 'py-1 px-3'} rotate-[-5deg] opacity-90 mix-blend-multiply print:bg-transparent shadow-sm inline-block`}>
+    <div className={`border-[2px] border-blue-800 text-blue-800 rounded-lg ${isCompact ? 'py-0.2 px-1' : 'py-1 px-3'} rotate-[-5deg] opacity-90 mix-blend-multiply shadow-sm inline-block`}>
       <div className={`${isCompact ? 'text-[7px]' : 'text-[9px]'} font-bold border-b border-blue-800 mb-0.5 text-center pb-0.5`}>{title}</div>
       <div className={`${isCompact ? 'text-[8px]' : 'text-[10px]'} text-center font-bold whitespace-nowrap`}>{name}</div>
     </div>
   );
 
   const handlePrint = () => { 
+      const isBankForm = printMode === 'bank_form' && dynamicTemplate;
+      const w = isBankForm ? (dynamicTemplate?.width || 210) : 210;
+      const h = isBankForm ? (dynamicTemplate?.height || 297) : 148;
+      const size = isBankForm ? `${dynamicTemplate?.pageSize || 'A4'} ${dynamicTemplate?.orientation || 'portrait'}` : 'A5 landscape';
+
       const style = document.getElementById('page-size-style');
       if (style) {
-          const isBankForm = printMode === 'bank_form' && dynamicTemplate;
-          const w = isBankForm ? (dynamicTemplate?.width || 210) : 210;
-          const h = isBankForm ? (dynamicTemplate?.height || 297) : 148;
-          const size = isBankForm ? `${dynamicTemplate?.pageSize || 'A4'} ${dynamicTemplate?.orientation || 'portrait'}` : 'A5 landscape';
-          
           style.innerHTML = `
             @page { 
                 size: ${size}; 
                 margin: 0; 
             }
             @media print {
-                html, body { height: 100vh !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; background: white !important; }
-                /* Hide all direct children of body except the printing modal */
-                body > *:not(.printing-modal) { display: none !important; }
-                
-                /* Ensure modal is visible and positioned correctly */
+                * {
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
+                    color-adjust: exact !important;
+                }
+                html, body { 
+                    height: 100% !important; 
+                    margin: 0 !important; 
+                    padding: 0 !important; 
+                    background: white !important; 
+                    overflow: visible !important;
+                }
+                /* Hide everything in body except the printing modal */
+                body > *:not(.printing-modal) { 
+                    display: none !important; 
+                }
                 .printing-modal {
                     display: block !important;
                     visibility: visible !important;
-                    position: fixed !important;
-                    top: 0 !important;
-                    left: 0 !important;
+                    position: static !important;
                     width: 100% !important;
                     height: 100% !important;
-                    z-index: 9999999 !important;
+                    padding: 0 !important;
+                    margin: 0 !important;
+                    background: white !important;
+                    background-color: white !important;
+                    backdrop-filter: none !important;
+                    overflow: visible !important;
                 }
-                
-                /* Ensure only the specific printed div is visible and correctly positioned */
+                .no-print, .no-print * { 
+                    display: none !important; 
+                    visibility: hidden !important;
+                }
                 #${printAreaId} { 
-                    display: block !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    justify-content: space-between !important;
                     visibility: visible !important;
-                    position: fixed !important; 
+                    position: absolute !important; 
                     left: 0 !important; 
                     top: 0 !important; 
                     width: ${w}mm !important; 
                     height: ${h}mm !important;
+                    max-height: ${h}mm !important;
                     margin: 0 !important;
-                    padding: ${isBankForm ? '0' : '10mm'} !important;
-                    border: none !important;
+                    padding: ${isBankForm ? '0' : (isCompact ? '4mm 6mm' : '8mm 10mm')} !important;
+                    border: ${isBankForm ? 'none' : '2px solid #1f2937'} !important;
+                    border-radius: ${isBankForm ? '0' : '10px'} !important;
+                    box-sizing: border-box !important;
                     box-shadow: none !important;
                     background: white !important;
                     z-index: 9999999 !important;
                     overflow: hidden !important;
+                    page-break-inside: avoid !important;
+                    break-inside: avoid !important;
                 }
-                #${printAreaId} * { visibility: visible !important; }
+                #${printAreaId} * { 
+                    visibility: visible !important; 
+                }
             }
           `;
       }
       
-      // Execute cross-platform print safely for Mobile & Desktop
+      // If native mobile app (Capacitor Android/iOS)
+      if (Capacitor.isNativePlatform()) {
+          const el = document.getElementById(printAreaId);
+          if (el) {
+              executeCrossPlatformPrint(el, {
+                  title: `دستور پرداخت ${currentOrder.trackingNumber || ''}`,
+                  fileName: `Voucher_${currentOrder.trackingNumber || currentOrder.id}.pdf`,
+                  orientation: 'landscape'
+              });
+              return;
+          }
+      }
+
+      // On Web & Desktop: Direct browser print preserving 100% layout and styles
       const el = document.getElementById(printAreaId);
       if (el) {
-          executeCrossPlatformPrint(el, {
-              title: `سند پرداخت ${currentOrder.trackingNumber || ''}`,
-              fileName: `Voucher_${currentOrder.trackingNumber || currentOrder.id}.pdf`,
-              orientation: 'landscape'
-          });
+          window.print();
       }
   };
 
@@ -495,7 +530,7 @@ const PrintVoucher: React.FC<PrintVoucherProps> = ({ order, onClose, settings, c
   const receiptContent = (
       <div 
         id={printAreaId} 
-        className="printable-content bg-white print:bg-white border-2 border-gray-800 print:border-black print:!border-solid relative text-gray-900 flex flex-col justify-between overflow-hidden" 
+        className="printable-content bg-white border-2 border-gray-800 rounded-xl relative text-gray-900 flex flex-col justify-between overflow-hidden" 
         style={{ direction: 'rtl', width: '210mm', height: '148mm', padding: isCompact ? '4mm 6mm' : '8mm 10mm', boxSizing: 'border-box', margin: '0 auto', maxHeight: '148mm', overflow: 'hidden' }}
       >
         {currentOrder.status === OrderStatus.REJECTED && (
@@ -508,30 +543,30 @@ const PrintVoucher: React.FC<PrintVoucherProps> = ({ order, onClose, settings, c
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 border-8 border-red-200/50 text-red-200/50 font-black text-6xl rotate-[-25deg] p-6 rounded-3xl select-none z-0 pointer-events-none whitespace-nowrap">در حال ابطال</div>
         )}
         <div className="relative z-10">
-            <div className={`border-b-2 border-gray-800 print:border-black ${isCompact ? 'pb-1.5 mb-2' : 'pb-2 mb-3'} flex justify-between items-center`}>
+            <div className={`border-b-2 border-gray-800 ${isCompact ? 'pb-1.5 mb-2' : 'pb-2 mb-3'} flex justify-between items-center`}>
                 <div className="flex items-center gap-4 w-2/3">
                     {company?.logo ? <img src={company.logo} alt="Company Logo" className={`${isCompact ? 'h-11 w-11' : 'h-16 w-16'} object-contain mix-blend-multiply`} /> : <div className={`${isCompact ? 'h-11 w-11 text-[9px]' : 'h-16 w-16 text-xs'} bg-gray-100 text-gray-800 flex items-center justify-center rounded text-center border border-dashed border-gray-300`}>بدون لوگو</div>}
                     <div className="flex flex-col">
-                        <h1 className={`${isCompact ? 'text-base' : 'text-xl'} font-bold text-gray-900 print:text-black`}>{currentOrder.payingCompany || 'شرکت بازرگانی'}</h1>
-                        <p className="text-[10px] text-gray-500 font-bold mt-0.5 print:text-gray-800">سیستم مدیریت مالی و پرداخت</p>
+                        <h1 className={`${isCompact ? 'text-base' : 'text-xl'} font-bold text-gray-900`}>{currentOrder.payingCompany || 'شرکت بازرگانی'}</h1>
+                        <p className="text-[10px] text-gray-500 font-bold mt-0.5">سیستم مدیریت مالی و پرداخت</p>
                     </div>
                 </div>
                 <div className="text-left flex flex-col items-end gap-1 w-1/3">
-                    <h2 className={`${isCompact ? 'text-xs px-2 py-0.5' : 'text-base px-3 py-1'} font-black bg-gray-100 print:bg-transparent border border-gray-200/50 print:border-black text-gray-800 print:text-black rounded-lg mb-1 whitespace-nowrap`}>رسید پرداخت وجه</h2>
-                    <div className="flex items-center gap-2 text-[10px]"><span className="font-bold text-gray-500 print:text-gray-700">شماره:</span><span className="font-mono font-bold text-sm print:text-black">{currentOrder.trackingNumber}</span></div>
-                    <div className="flex items-center gap-2 text-[10px]"><span className="font-bold text-gray-500 print:text-gray-700">تاریخ:</span><span className="font-bold text-gray-800 print:text-black">{formatDate(currentOrder.date)}</span></div>
+                    <h2 className={`${isCompact ? 'text-xs px-2 py-0.5' : 'text-base px-3 py-1'} font-black bg-gray-100 border border-gray-200/60 text-gray-800 rounded-lg mb-1 whitespace-nowrap`}>رسید پرداخت وجه</h2>
+                    <div className="flex items-center gap-2 text-[10px]"><span className="font-bold text-gray-500">شماره:</span><span className="font-mono font-bold text-sm text-gray-900">{currentOrder.trackingNumber}</span></div>
+                    <div className="flex items-center gap-2 text-[10px]"><span className="font-bold text-gray-500">تاریخ:</span><span className="font-bold text-gray-800">{formatDate(currentOrder.date)}</span></div>
                 </div>
             </div>
             <div className={`${isCompact ? 'space-y-1.5' : 'space-y-3'}`}>
                 <div className="grid grid-cols-2 gap-3">
-                    <div className={`bg-gray-100/50 border-2 border-black print:bg-transparent print:border-black print:!border-solid ${isCompact ? 'p-1 px-1.5' : 'p-2'} rounded print:rounded-none`} style={{borderStyle: 'solid', borderWidth: '2px'}}><span className="block text-gray-600 print:text-black text-[9px] mb-0.5 font-bold underline underline-offset-2">در وجه (ذینفع):</span><span className={`font-bold text-gray-900 print:text-black ${isCompact ? 'text-xs' : 'text-base'}`}>{currentOrder.payee}</span></div>
-                    <div className={`bg-gray-100/50 border-2 border-black print:bg-transparent print:border-black print:!border-solid ${isCompact ? 'p-1 px-1.5' : 'p-2'} rounded print:rounded-none`} style={{borderStyle: 'solid', borderWidth: '2px'}}><span className="block text-gray-600 print:text-black text-[9px] mb-0.5 font-bold underline underline-offset-2">مبلغ کل پرداختی:</span><span className={`font-bold text-gray-900 print:text-black ${isCompact ? 'text-xs' : 'text-base'}`}>{formatCurrency(currentOrder.totalAmount)}</span></div>
+                    <div className={`bg-gray-100/70 border-2 border-gray-800 ${isCompact ? 'p-1 px-1.5' : 'p-2'} rounded-lg`} style={{borderStyle: 'solid', borderWidth: '2px'}}><span className="block text-gray-600 text-[9px] mb-0.5 font-bold underline underline-offset-2">در وجه (ذینفع):</span><span className={`font-bold text-gray-900 ${isCompact ? 'text-xs' : 'text-base'}`}>{currentOrder.payee}</span></div>
+                    <div className={`bg-gray-100/70 border-2 border-gray-800 ${isCompact ? 'p-1 px-1.5' : 'p-2'} rounded-lg`} style={{borderStyle: 'solid', borderWidth: '2px'}}><span className="block text-gray-600 text-[9px] mb-0.5 font-bold underline underline-offset-2">مبلغ کل پرداختی:</span><span className={`font-bold text-gray-900 ${isCompact ? 'text-xs' : 'text-base'}`}>{formatCurrency(currentOrder.totalAmount)}</span></div>
                 </div>
-                <div className={`bg-gray-100/50 border-2 border-black print:border-black print:!border-solid ${isCompact ? 'p-1 px-1.5 min-h-[22px]' : 'p-2 min-h-[45px]'} rounded print:rounded-none`} style={{borderStyle: 'solid', borderWidth: '2px'}}><span className="block text-gray-600 print:text-black text-[9px] mb-0.5 font-bold underline underline-offset-2">بابت (شرح پرداخت):</span><p className={`text-gray-800 print:text-black text-justify font-medium leading-tight ${isCompact ? 'text-[9px]' : 'text-xs'}`}>{currentOrder.description}</p></div>
-                <div className="border-2 border-black print:border-black print:!border-solid rounded print:rounded-none overflow-hidden" style={{borderStyle: 'solid', borderWidth: '2px'}}>
+                <div className={`bg-gray-100/70 border-2 border-gray-800 ${isCompact ? 'p-1 px-1.5 min-h-[22px]' : 'p-2 min-h-[45px]'} rounded-lg`} style={{borderStyle: 'solid', borderWidth: '2px'}}><span className="block text-gray-600 text-[9px] mb-0.5 font-bold underline underline-offset-2">بابت (شرح پرداخت):</span><p className={`text-gray-800 text-justify font-medium leading-tight ${isCompact ? 'text-[9px]' : 'text-xs'}`}>{currentOrder.description}</p></div>
+                <div className="border-2 border-gray-800 rounded-lg overflow-hidden" style={{borderStyle: 'solid', borderWidth: '2px'}}>
                     <table className={`w-full text-right ${isCompact ? 'text-[8.5px]' : 'text-[10px]'}`}>
-                        <thead className="bg-gray-200 print:bg-transparent border-b border-black print:border-black" style={{borderBottomStyle: 'solid', borderBottomWidth: '2px'}}><tr><th className={`${isCompact ? 'p-0.5 px-1' : 'p-1.5'} font-bold text-gray-600 print:text-black w-6 text-center`}>#</th><th className={`${isCompact ? 'p-0.5 px-1' : 'p-1.5'} font-bold text-gray-600 print:text-black`}>نوع پرداخت</th><th className={`${isCompact ? 'p-0.5 px-1' : 'p-1.5'} font-bold text-gray-600 print:text-black`}>مبلغ</th><th className={`${isCompact ? 'p-0.5 px-1' : 'p-1.5'} font-bold text-gray-600 print:text-black`}>بانک / چک / شبا</th><th className={`${isCompact ? 'p-0.5 px-1' : 'p-1.5'} font-bold text-gray-600 print:text-black`}>توضیحات</th></tr></thead>
-                        <tbody className="divide-y divide-black">{currentOrder.paymentDetails.map((detail, idx) => (
+                        <thead className="bg-gray-200 border-b border-gray-800" style={{borderBottomStyle: 'solid', borderBottomWidth: '2px'}}><tr><th className={`${isCompact ? 'p-0.5 px-1' : 'p-1.5'} font-bold text-gray-700 w-6 text-center`}>#</th><th className={`${isCompact ? 'p-0.5 px-1' : 'p-1.5'} font-bold text-gray-700`}>نوع پرداخت</th><th className={`${isCompact ? 'p-0.5 px-1' : 'p-1.5'} font-bold text-gray-700`}>مبلغ</th><th className={`${isCompact ? 'p-0.5 px-1' : 'p-1.5'} font-bold text-gray-700`}>بانک / چک / شبا</th><th className={`${isCompact ? 'p-0.5 px-1' : 'p-1.5'} font-bold text-gray-700`}>توضیحات</th></tr></thead>
+                        <tbody className="divide-y divide-gray-300">{currentOrder.paymentDetails.map((detail, idx) => (
                             <tr key={detail.id}>
                                 <td className={`${isCompact ? 'p-0.5 px-1' : 'p-1.5'} text-center`}>{idx + 1}</td>
                                 <td className={`${isCompact ? 'p-0.5 px-1' : 'p-1.5'} font-bold`}>{detail.method}</td>

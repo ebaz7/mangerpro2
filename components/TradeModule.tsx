@@ -5754,7 +5754,7 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                                         <FormattedNumberInput 
                                             className="w-full border border-gray-300 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm font-mono text-left dir-ltr focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all outline-none font-bold text-emerald-700 dark:text-emerald-400" 
                                             value={newDomesticQuantityKgStr} 
-                                            onChange={val => setNewDomesticQuantityKgStr(val)} 
+                                            onChange={val => setNewDomesticQuantityKgStr(val !== undefined && val !== null ? String(val) : '')} 
                                             placeholder="۵۰,۰۰۰" 
                                         />
                                     </div>

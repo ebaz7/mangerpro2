@@ -15,7 +15,7 @@ import {
     UserCheck,
     CheckCircle2
 } from 'lucide-react';
-import { ChequeItemInput, COMMON_IRANIAN_BANKS, toShamsiStr, fromShamsiStr } from './ChequeItemRow';
+import { ChequeItemInput, COMMON_IRANIAN_BANKS, toShamsiStr, fromShamsiStr, normalizeToAsciiDigits } from './ChequeItemRow';
 import { MobileAttachmentUploader, ReceiptAttachment } from './MobileAttachmentUploader';
 import * as jalaali from 'jalaali-js';
 // @ts-ignore
@@ -66,13 +66,25 @@ const ChequeReviewRow: React.FC<ChequeRowProps> = ({
     onDelete
 }) => {
     const [shamsiInput, setShamsiInput] = useState(() => toShamsiStr(item.dueDate));
+    const isTypingDateRef = useRef(false);
+
+    const safeShamsiValue = React.useMemo(() => {
+        return toShamsiStr(item.dueDate) || undefined;
+    }, [item.dueDate]);
 
     useEffect(() => {
-        setShamsiInput(toShamsiStr(item.dueDate));
+        if (isTypingDateRef.current) return;
+        const currentItemShamsi = toShamsiStr(item.dueDate);
+        const currentInputGreg = fromShamsiStr(shamsiInput);
+        if (currentInputGreg !== item.dueDate && shamsiInput !== currentItemShamsi) {
+            setShamsiInput(currentItemShamsi);
+        }
     }, [item.dueDate]);
 
     const handleShamsiDateTyping = (val: string) => {
-        let clean = val.replace(/[^0-9/]/g, '');
+        isTypingDateRef.current = true;
+        const normalized = normalizeToAsciiDigits(val);
+        let clean = normalized.replace(/[^0-9/]/g, '');
         if (clean.length > 10) clean = clean.slice(0, 10);
         const digits = clean.replace(/\//g, '');
         let formatted = digits;
@@ -84,12 +96,23 @@ const ChequeReviewRow: React.FC<ChequeRowProps> = ({
             const jy = parseInt(parts[0], 10);
             const jm = parseInt(parts[1], 10);
             const jd = parseInt(parts[2], 10);
-            if (jy >= 1350 && jy <= 1500 && jm >= 1 && jm <= 12 && jd >= 1 && jd <= 31) {
+            if (jy >= 1300 && jy <= 1500 && jm >= 1 && jm <= 12 && jd >= 1 && jd <= 31) {
                 const g = jalaali.toGregorian(jy, jm, jd);
                 const gm = String(g.gm).padStart(2, '0');
                 const gd = String(g.gd).padStart(2, '0');
                 onChange(index, 'dueDate', `${g.gy}-${gm}-${gd}`);
             }
+        }
+    };
+
+    const handleDateBlur = () => {
+        isTypingDateRef.current = false;
+        const greg = fromShamsiStr(shamsiInput);
+        if (greg) {
+            onChange(index, 'dueDate', greg);
+            setShamsiInput(toShamsiStr(greg));
+        } else {
+            setShamsiInput(toShamsiStr(item.dueDate));
         }
     };
 
@@ -167,6 +190,11 @@ const ChequeReviewRow: React.FC<ChequeRowProps> = ({
                             type="text"
                             inputMode="numeric"
                             value={shamsiInput}
+                            onFocus={(e) => {
+                                isTypingDateRef.current = true;
+                                e.currentTarget.select();
+                            }}
+                            onBlur={handleDateBlur}
                             onChange={(e) => handleShamsiDateTyping(e.target.value)}
                             placeholder="۱۴۰۴/۰۸/۲۵"
                             className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl pr-3 pl-8 py-2 text-xs font-mono font-bold outline-none focus:border-emerald-500 transition-colors"
@@ -175,12 +203,15 @@ const ChequeReviewRow: React.FC<ChequeRowProps> = ({
                             <DatePicker
                                 calendar={persian}
                                 locale={persian_fa}
-                                value={item.dueDate ? new Date(item.dueDate) : undefined}
+                                value={safeShamsiValue}
                                 onChange={(date: any) => {
-                                    const val = date?.format?.('YYYY/MM/DD');
-                                    if (val) {
-                                        setShamsiInput(val);
-                                        const greg = fromShamsiStr(val);
+                                    if (!date) return;
+                                    isTypingDateRef.current = false;
+                                    const rawVal = date?.format?.('YYYY/MM/DD');
+                                    const ascii = normalizeToAsciiDigits(rawVal);
+                                    if (ascii) {
+                                        setShamsiInput(ascii);
+                                        const greg = fromShamsiStr(ascii);
                                         if (greg) onChange(index, 'dueDate', greg);
                                     }
                                 }}
@@ -248,6 +279,9 @@ export const AccountingReviewModal: React.FC<Props> = ({
     const [editPersonResults, setEditPersonResults] = useState<SayanPerson[]>([]);
     const [editReceiptNo, setEditReceiptNo] = useState(String(receipt.receiptNo || receipt.id || ''));
     const [editPoshtNomreh, setEditPoshtNomreh] = useState(String(receipt.poshtNomreh || ''));
+    const [editDocDateShamsi, setEditDocDateShamsi] = useState(() => {
+        return receipt.docDateShamsi || toShamsiStr(receipt.docDate || receipt.createdAt) || '';
+    });
     const [editDescription, setEditDescription] = useState(receipt.description || '');
     const [accountingNote, setAccountingNote] = useState(receipt.accountingReview?.note || '');
     const [editCashboxCode, setEditCashboxCode] = useState(receipt.cashboxCode || '11001');
@@ -354,6 +388,8 @@ export const AccountingReviewModal: React.FC<Props> = ({
             personName: finalPersonName,
             poshtNomreh: editPoshtNomreh,
             cashboxCode: editCashboxCode,
+            docDate: editDocDateShamsi.trim(),
+            docDateShamsi: editDocDateShamsi.trim(),
             description: editDescription,
             totalAmount: editTotalAmount,
             cheques: editCheques.map((ch, idx) => ({
@@ -458,9 +494,9 @@ export const AccountingReviewModal: React.FC<Props> = ({
                             </h4>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                             {/* Person Selection */}
-                            <div className="relative sm:col-span-2 md:col-span-1">
+                            <div className="relative sm:col-span-2 lg:col-span-1">
                                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                                     طرف حساب سایان (پرداخت کننده) *
                                 </label>
@@ -529,6 +565,46 @@ export const AccountingReviewModal: React.FC<Props> = ({
                                     placeholder="مثال: ۱۰۲۴"
                                     className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-mono font-bold outline-none focus:border-amber-500"
                                 />
+                            </div>
+
+                            {/* Receipt Date (Shamsi) */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                    تاریخ ثبت رسید (شمسی) *
+                                </label>
+                                <div className="relative flex items-center">
+                                    <input
+                                        type="text"
+                                        value={editDocDateShamsi}
+                                        onChange={(e) => setEditDocDateShamsi(normalizeToAsciiDigits(e.target.value))}
+                                        placeholder="۱۴۰۴/۰۸/۲۵"
+                                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl pr-3 pl-8 py-2 text-xs font-mono font-bold outline-none focus:border-amber-500 transition-colors"
+                                    />
+                                    <div className="absolute left-1.5 top-1.5 z-10">
+                                        <DatePicker
+                                            calendar={persian}
+                                            locale={persian_fa}
+                                            value={editDocDateShamsi || undefined}
+                                            onChange={(date: any) => {
+                                                if (!date) return;
+                                                const rawVal = date?.format?.('YYYY/MM/DD');
+                                                const ascii = normalizeToAsciiDigits(rawVal);
+                                                if (ascii) setEditDocDateShamsi(ascii);
+                                            }}
+                                            render={(value: any, openCalendar: any) => (
+                                                <button
+                                                    type="button"
+                                                    onClick={openCalendar}
+                                                    className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-amber-600 transition-colors"
+                                                    title="انتخاب تاریخ رسید از تقویم"
+                                                >
+                                                    <Calendar className="w-4 h-4 text-amber-600" />
+                                                </button>
+                                            )}
+                                            calendarPosition="bottom-right"
+                                        />
+                                    </div>
+                                </div>
                             </div>
 
                             {/* Cashbox Selection */}

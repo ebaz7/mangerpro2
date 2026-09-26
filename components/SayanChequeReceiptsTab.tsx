@@ -11,7 +11,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import * as jalaali from 'jalaali-js';
 import { UserRole } from '../types';
 import { getRolePermissions } from '../services/authService';
-import { ChequeItemRow, ChequeItemInput, COMMON_IRANIAN_BANKS } from './sayan-cheques/ChequeItemRow';
+import { ChequeItemRow, ChequeItemInput, COMMON_IRANIAN_BANKS, normalizeToAsciiDigits, toShamsiStr, fromShamsiStr } from './sayan-cheques/ChequeItemRow';
+// @ts-ignore
+import DatePicker from "react-multi-date-picker";
+// @ts-ignore
+import persian from "react-date-object/calendars/persian";
+// @ts-ignore
+import persian_fa from "react-date-object/locales/persian_fa";
 import { RealSayanDocumentModal } from './sayan-cheques/RealSayanDocumentModal';
 import { AccountingReviewModal } from './sayan-cheques/AccountingReviewModal';
 import { ChequeReceiptDetailModal } from './sayan-cheques/ChequeReceiptDetailModal';
@@ -378,7 +384,12 @@ export const SayanChequeReceiptsTab: React.FC<Props> = ({
             const res = await fetch(`/api/sayan/cheque-receipts?fiscalYear=${fiscalYear}`);
             const data = await res.json();
             if (data.success && Array.isArray(data.data)) {
-                setReceiptsList(data.data);
+                setReceiptsList(prev => {
+                    if (prev.length === data.data.length && JSON.stringify(prev) === JSON.stringify(data.data)) {
+                        return prev;
+                    }
+                    return data.data;
+                });
                 const maxInList = getArchiveLatestSequence(data.data);
                 if (maxInList > 0) {
                     const nextStr = String(maxInList + 1);
@@ -1011,8 +1022,8 @@ export const SayanChequeReceiptsTab: React.FC<Props> = ({
         if (!hasProcessing) return;
 
         const interval = setInterval(() => {
-            fetchReceipts(false);
-        }, 2000);
+            fetchReceipts(true);
+        }, 3000);
 
         return () => clearInterval(interval);
     }, [receiptsList]);
@@ -1458,13 +1469,39 @@ export const SayanChequeReceiptsTab: React.FC<Props> = ({
                                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
                                     تاریخ ثبت رسید (شمسی)
                                 </label>
-                                <input
-                                    id="input-doc-date"
-                                    type="text"
-                                    value={docDateShamsi}
-                                    onChange={(e) => setDocDateShamsi(e.target.value)}
-                                    className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-mono font-bold outline-none focus:border-emerald-500 focus:bg-white dark:focus:bg-slate-900 transition-colors"
-                                />
+                                <div className="relative flex items-center">
+                                    <input
+                                        id="input-doc-date"
+                                        type="text"
+                                        value={docDateShamsi}
+                                        onChange={(e) => setDocDateShamsi(normalizeToAsciiDigits(e.target.value))}
+                                        className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl pr-3 pl-8 py-2.5 text-xs font-mono font-bold outline-none focus:border-emerald-500 focus:bg-white dark:focus:bg-slate-900 transition-colors"
+                                    />
+                                    <div className="absolute left-2 top-2 z-10">
+                                        <DatePicker
+                                            calendar={persian}
+                                            locale={persian_fa}
+                                            value={docDateShamsi || undefined}
+                                            onChange={(date: any) => {
+                                                if (!date) return;
+                                                const rawVal = date?.format?.('YYYY/MM/DD');
+                                                const ascii = normalizeToAsciiDigits(rawVal);
+                                                if (ascii) setDocDateShamsi(ascii);
+                                            }}
+                                            render={(value: any, openCalendar: any) => (
+                                                <button
+                                                    type="button"
+                                                    onClick={openCalendar}
+                                                    className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 transition-colors"
+                                                    title="انتخاب تاریخ ثبت رسید از تقویم"
+                                                >
+                                                    <Calendar className="w-4 h-4 text-emerald-600" />
+                                                </button>
+                                            )}
+                                            calendarPosition="bottom-right"
+                                        />
+                                    </div>
+                                </div>
                             </div>
                         </div>
 

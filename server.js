@@ -247,14 +247,29 @@ const FORBIDDEN_EXTENSIONS = new Set([
     '.jar', '.jsp', '.cgi', '.scr', '.hta', '.msi', '.com', '.wsf', '.vbe'
 ]);
 
+const decodeUtf8FileName = (origName) => {
+    if (!origName || typeof origName !== 'string') return '';
+    let name = origName.trim();
+    if (/[\u00C0-\u00FF\u0080-\u00BF]/.test(name)) {
+        try {
+            const converted = Buffer.from(name, 'latin1').toString('utf8');
+            if (converted && !converted.includes('\ufffd') && converted.length > 0) {
+                name = converted;
+            }
+        } catch (_) {}
+    }
+    return name;
+};
+
 const getSafeFileName = (origName) => {
     if (!origName || typeof origName !== 'string') return `file_${Date.now()}`;
-    const base = path.basename(origName).replace(/[\/\\]/g, '');
+    const decodedName = decodeUtf8FileName(origName);
+    const base = path.basename(decodedName).replace(/[\/\\]/g, '');
     const ext = path.extname(base).toLowerCase();
     if (FORBIDDEN_EXTENSIONS.has(ext)) {
         throw new Error('فرمت فایل ارسالی به دلایل امنیتی مجاز نمی‌باشد.');
     }
-    const cleanBase = base.replace(/[^a-zA-Z0-9._\-\u0600-\u06FF]/g, '_');
+    const cleanBase = base.replace(/[^a-zA-Z0-9._\-\u0600-\u06FF\s]/g, '_').trim();
     return cleanBase || `file_${Date.now()}`;
 };
 
@@ -279,10 +294,7 @@ const storage = multer.diskStorage({
         cb(null, UPLOADS_DIR);
     },
     filename: function (req, file, cb) {
-        let origName = file.originalname || 'file.jpg';
-        try {
-            origName = Buffer.from(origName, 'latin1').toString('utf8');
-        } catch (_) {}
+        const origName = decodeUtf8FileName(file.originalname) || 'file.jpg';
         let safeBase = 'file';
         try {
             safeBase = getSafeFileName(origName);
@@ -317,9 +329,10 @@ app.post('/api/upload-file', upload.single('file'), (req, res) => {
         }
         const relPath = path.relative(UPLOADS_DIR, req.file.path).replace(/\\/g, '/');
         const fileUrl = `/uploads/${relPath}`;
+        const decodedOriginalName = decodeUtf8FileName(req.file.originalname) || req.file.originalname;
         res.json({
             success: true,
-            fileName: req.file.originalname,
+            fileName: decodedOriginalName,
             url: fileUrl,
             fileSize: req.file.size,
             fileType: req.file.mimetype,
@@ -9528,7 +9541,7 @@ app.post('/api/upload', (req, res) => {
         fs.writeFile(filePath, base64Data, 'base64', (err) => {
             if (err) return res.status(500).send('Upload failed');
             const relPath = path.relative(UPLOADS_DIR, filePath).replace(/\\/g, '/');
-            res.json({ fileName: safeName, url: `/uploads/${relPath}` });
+            res.json({ fileName: decodeUtf8FileName(fileName) || safeName, url: `/uploads/${relPath}` });
         });
     } catch (e) {
         console.error("Upload error:", e);

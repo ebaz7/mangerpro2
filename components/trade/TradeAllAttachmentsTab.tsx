@@ -6,6 +6,7 @@ import { downloadAndOpenFile } from '../../services/fileService';
 import { openSendToChat } from '../../services/chatShareService';
 import { deleteUploadedFile } from '../../services/storageService';
 import { resolveImageUrl } from '../../services/apiService';
+import { getDisplayFileName } from '../../utils/fileNameUtils';
 import { formatDate } from '../../constants';
 import { 
   Paperclip, 
@@ -130,11 +131,11 @@ export const TradeAllAttachmentsTab: React.FC<TradeAllAttachmentsTabProps> = ({
               fileName: rawAtt.fileName,
               url: rawAtt.url,
               category: 'commercial/shipping',
-              subCategory: doc.documentType || 'اسناد حمل',
+              subCategory: (doc as any).documentType || doc.type || 'اسناد حمل',
               refId: doc.id,
               uploadedAt: Date.now(),
               uploadedBy: 'کاربر',
-              description: `سند حمل: ${doc.documentNumber || doc.documentType}`
+              description: `سند حمل: ${doc.documentNumber || (doc as any).documentType || doc.type || ''}`
             });
           });
         }
@@ -499,14 +500,19 @@ export const TradeAllAttachmentsTab: React.FC<TradeAllAttachmentsTabProps> = ({
                   {/* Body Content */}
                   <div className="p-3 flex-1 flex flex-col justify-between gap-2">
                     <div>
-                      <span 
-                        onClick={() => handleOpenPreview(att)} 
-                        className="text-xs font-bold text-gray-900 dark:text-gray-100 block truncate cursor-pointer hover:text-blue-600" 
-                        title={att.fileName}
-                        dir="ltr"
-                      >
-                        {att.fileName}
-                      </span>
+                      {(() => {
+                        const displayFileName = getDisplayFileName(att.fileName, att.url);
+                        return (
+                          <span 
+                            onClick={() => handleOpenPreview(att)} 
+                            className="text-xs font-bold text-gray-900 dark:text-gray-100 block break-words line-clamp-2 cursor-pointer hover:text-blue-600 leading-relaxed" 
+                            title={displayFileName}
+                            dir="auto"
+                          >
+                            {displayFileName}
+                          </span>
+                        );
+                      })()}
                       {att.description && (
                         <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 line-clamp-1">
                           {att.description}
@@ -521,49 +527,56 @@ export const TradeAllAttachmentsTab: React.FC<TradeAllAttachmentsTabProps> = ({
 
                     {/* Action Buttons */}
                     <div className="flex items-center justify-between gap-1 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenPreview(att)}
-                        className="flex-1 py-1.5 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
-                        title="پیش‌نمایش"
-                      >
-                        <Eye size={13} />
-                        <span>پیش‌نمایش</span>
-                      </button>
+                      {(() => {
+                        const displayFileName = getDisplayFileName(att.fileName, att.url);
+                        return (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenPreview(att)}
+                              className="flex-1 py-1.5 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
+                              title="پیش‌نمایش"
+                            >
+                              <Eye size={13} />
+                              <span>پیش‌نمایش</span>
+                            </button>
 
-                      <button
-                        type="button"
-                        onClick={() => downloadAndOpenFile(att.url, att.fileName)}
-                        className="p-1.5 text-gray-600 dark:text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors cursor-pointer"
-                        title="دانلود"
-                      >
-                        <Download size={14} />
-                      </button>
+                            <button
+                              type="button"
+                              onClick={() => downloadAndOpenFile(att.url, displayFileName)}
+                              className="p-1.5 text-gray-600 dark:text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors cursor-pointer"
+                              title="دانلود"
+                            >
+                              <Download size={14} />
+                            </button>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          openSendToChat({
-                            fileUrl: att.url,
-                            fileName: att.fileName,
-                            title: `ارسال پیوست ${categoryLabel} به چت`,
-                            defaultMessage: `📎 فایل پیوست بازرگانی (${categoryLabel}): ${att.fileName}`
-                          });
-                        }}
-                        className="p-1.5 text-gray-600 dark:text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors cursor-pointer"
-                        title="ارسال به چت"
-                      >
-                        <Share2 size={14} />
-                      </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                openSendToChat({
+                                  fileUrl: att.url,
+                                  fileName: displayFileName,
+                                  title: `ارسال پیوست ${categoryLabel} به چت`,
+                                  defaultMessage: `📎 فایل پیوست بازرگانی (${categoryLabel}): ${displayFileName}`
+                                });
+                              }}
+                              className="p-1.5 text-gray-600 dark:text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors cursor-pointer"
+                              title="ارسال به چت"
+                            >
+                              <Share2 size={14} />
+                            </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteAttachment(att)}
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
-                        title="حذف پیوست"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteAttachment(att)}
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                              title="حذف پیوست"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -601,14 +614,20 @@ export const TradeAllAttachmentsTab: React.FC<TradeAllAttachmentsTabProps> = ({
                           </div>
                         </td>
                         <td className="p-3 font-bold text-gray-900 dark:text-gray-100">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenPreview(att)}
-                            className="hover:underline hover:text-blue-600 text-right font-mono"
-                            dir="ltr"
-                          >
-                            {att.fileName}
-                          </button>
+                          {(() => {
+                            const displayFileName = getDisplayFileName(att.fileName, att.url);
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenPreview(att)}
+                                className="hover:underline hover:text-blue-600 text-right font-medium"
+                                dir="auto"
+                                title={displayFileName}
+                              >
+                                {displayFileName}
+                              </button>
+                            );
+                          })()}
                         </td>
                         <td className="p-3">
                           <span className="bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-md font-bold text-gray-800 dark:text-gray-200">

@@ -4,6 +4,7 @@ import { uploadTradeAttachment, deleteUploadedFile } from '../../services/storag
 import { downloadAndOpenFile } from '../../services/fileService';
 import { openSendToChat } from '../../services/chatShareService';
 import { resolveImageUrl } from '../../services/apiService';
+import { getDisplayFileName } from '../../utils/fileNameUtils';
 import { FileViewerModal } from '../FileViewerModal';
 import { 
   Paperclip, 
@@ -258,28 +259,29 @@ export const TradeAttachmentSection: React.FC<TradeAttachmentSectionProps> = ({
 
       {/* Attachments List / Grid */}
       {filteredAttachments.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {filteredAttachments.map((att, idx) => {
             const isImage = att.fileType?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(att.fileName) || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(att.url);
             const isPdf = att.fileType === 'application/pdf' || /\.pdf$/i.test(att.fileName) || /\.pdf$/i.test(att.url);
             const resolvedUrl = resolveImageUrl(att.url);
+            const displayFileName = getDisplayFileName(att.fileName, att.url);
 
             return (
               <div 
                 key={att.id || idx}
-                className="group relative bg-white dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700 rounded-xl p-2.5 flex items-center justify-between gap-2.5 shadow-xs hover:shadow-md hover:border-blue-400 dark:hover:border-blue-500 transition-all"
+                className="group relative bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-500 rounded-xl p-3 flex items-center justify-between gap-3 shadow-xs hover:shadow-md transition-all"
               >
                 {/* File Thumbnail & Info */}
                 <div 
                   onClick={() => handleOpenPreview(att)}
-                  className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
-                  title="کلیک جهت مشاهده پیش‌نمایش"
+                  className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer overflow-hidden"
+                  title={`مشاهده فایل: ${displayFileName}`}
                 >
                   {isImage ? (
-                    <div className="w-11 h-11 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-900 shrink-0 border border-gray-200 dark:border-gray-700 flex items-center justify-center">
+                    <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-900 shrink-0 border border-gray-200 dark:border-gray-700 flex items-center justify-center">
                       <img 
                         src={resolvedUrl} 
-                        alt={att.fileName} 
+                        alt={displayFileName} 
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                         onError={(e) => {
                           (e.target as HTMLElement).style.display = 'none';
@@ -287,30 +289,34 @@ export const TradeAttachmentSection: React.FC<TradeAttachmentSectionProps> = ({
                       />
                     </div>
                   ) : (
-                    <div className={`w-11 h-11 rounded-lg shrink-0 flex items-center justify-center ${
-                      isPdf ? 'bg-red-50 dark:bg-red-950/50 text-red-600 border border-red-200 dark:border-red-900/50' : 'bg-blue-50 dark:bg-blue-950/50 text-blue-600 border border-blue-200 dark:border-blue-900/50'
+                    <div className={`w-12 h-12 rounded-xl shrink-0 flex items-center justify-center shadow-2xs ${
+                      isPdf ? 'bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50' : 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50'
                     }`}>
-                      {isPdf ? <FileText size={22} /> : <Paperclip size={22} />}
+                      {isPdf ? <FileText size={24} /> : <Paperclip size={24} />}
                     </div>
                   )}
 
-                  <div className="min-w-0 flex-1 text-right">
-                    <span className="text-xs font-bold text-gray-800 dark:text-gray-200 block truncate" dir="ltr" title={att.fileName}>
-                      {att.fileName}
+                  <div className="min-w-0 flex-1 text-right overflow-hidden">
+                    <span 
+                      className="text-xs font-bold text-gray-900 dark:text-gray-100 block break-words line-clamp-2 leading-relaxed" 
+                      dir="auto" 
+                      title={displayFileName}
+                    >
+                      {displayFileName}
                     </span>
-                    <div className="flex items-center gap-2 mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
-                      {att.fileSize && <span>{formatFileSize(att.fileSize)}</span>}
-                      {isPdf && <span className="text-red-600 dark:text-red-400 font-bold">PDF</span>}
-                      {isImage && <span className="text-blue-600 dark:text-blue-400 font-bold">تصویر</span>}
-                      <span className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5">
-                        <Eye size={10} /> پیش‌نمایش
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] text-gray-500 dark:text-gray-400">
+                      {att.fileSize ? <span className="font-mono bg-gray-100 dark:bg-gray-700/60 px-1.5 py-0.5 rounded text-gray-700 dark:text-gray-300">{formatFileSize(att.fileSize)}</span> : null}
+                      {isPdf && <span className="bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 font-bold px-1.5 py-0.5 rounded border border-red-200 dark:border-red-900/50">PDF</span>}
+                      {isImage && <span className="bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-900/50">تصویر</span>}
+                      <span className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5 mr-auto">
+                        <Eye size={11} /> پیش‌نمایش
                       </span>
                     </div>
                   </div>
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                   {/* Preview button */}
                   <button
                     type="button"
@@ -318,17 +324,17 @@ export const TradeAttachmentSection: React.FC<TradeAttachmentSectionProps> = ({
                     className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors cursor-pointer"
                     title="پیش‌نمایش (Preview)"
                   >
-                    <Eye size={14} />
+                    <Eye size={15} />
                   </button>
 
                   {/* Download button */}
                   <button
                     type="button"
-                    onClick={() => downloadAndOpenFile(att.url, att.fileName)}
+                    onClick={() => downloadAndOpenFile(att.url, displayFileName)}
                     className="p-1.5 text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors cursor-pointer"
                     title="دانلود فایل"
                   >
-                    <Download size={14} />
+                    <Download size={15} />
                   </button>
 
                   {/* Send to chat button */}
@@ -337,15 +343,15 @@ export const TradeAttachmentSection: React.FC<TradeAttachmentSectionProps> = ({
                     onClick={() => {
                       openSendToChat({
                         fileUrl: att.url,
-                        fileName: att.fileName,
+                        fileName: displayFileName,
                         title: 'ارسال پیوست بازرگانی به چت',
-                        defaultMessage: `📎 فایل پیوست بازرگانی: ${att.fileName}`
+                        defaultMessage: `📎 فایل پیوست بازرگانی: ${displayFileName}`
                       });
                     }}
                     className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors cursor-pointer"
                     title="ارسال به چت و گفتگو"
                   >
-                    <Share2 size={14} />
+                    <Share2 size={15} />
                   </button>
 
                   {/* Delete button */}
@@ -356,7 +362,7 @@ export const TradeAttachmentSection: React.FC<TradeAttachmentSectionProps> = ({
                       className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
                       title="حذف پیوست"
                     >
-                      <Trash2 size={14} />
+                      <Trash2 size={15} />
                     </button>
                   )}
                 </div>

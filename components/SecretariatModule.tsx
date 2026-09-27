@@ -112,6 +112,69 @@ if (typeof window !== "undefined" && ReactQuill) {
       } catch (e) {
         console.warn("LineHeight attributor skipped:", e);
       }
+
+      // 5. Register Custom Image blot to preserve style, width, height, blend mode, and all layout styles
+      try {
+        const BaseImage = Quill.import("formats/image") as any;
+        if (BaseImage) {
+          class CustomImageBlot extends BaseImage {
+            static create(value: any) {
+              const src = typeof value === "object" && value !== null ? value.src : value;
+              const node = super.create(src);
+              if (typeof value === "object" && value !== null) {
+                if (value.style) node.setAttribute("style", value.style);
+                if (value.width) node.setAttribute("width", value.width);
+                if (value.height) node.setAttribute("height", value.height);
+                if (value.alt) node.setAttribute("alt", value.alt);
+                if (value.className) node.setAttribute("class", value.className);
+              }
+              return node;
+            }
+
+            static formats(domNode: HTMLElement) {
+              const formats: Record<string, any> = {};
+              if (domNode.hasAttribute("style")) {
+                formats.style = domNode.getAttribute("style");
+              }
+              if (domNode.hasAttribute("width")) {
+                formats.width = domNode.getAttribute("width");
+              }
+              if (domNode.hasAttribute("height")) {
+                formats.height = domNode.getAttribute("height");
+              }
+              if (domNode.hasAttribute("alt")) {
+                formats.alt = domNode.getAttribute("alt");
+              }
+              return formats;
+            }
+
+            static value(domNode: HTMLElement) {
+              return {
+                src: domNode.getAttribute("src"),
+                style: domNode.getAttribute("style") || "",
+                width: domNode.getAttribute("width") || "",
+                height: domNode.getAttribute("height") || "",
+                alt: domNode.getAttribute("alt") || "",
+              };
+            }
+
+            format(name: string, value: any) {
+              if (["style", "width", "height", "alt"].includes(name)) {
+                if (value) {
+                  this.domNode.setAttribute(name, value);
+                } else {
+                  this.domNode.removeAttribute(name);
+                }
+              } else {
+                super.format(name, value);
+              }
+            }
+          }
+          Quill.register(CustomImageBlot, true);
+        }
+      } catch (imgErr) {
+        console.warn("CustomImageBlot registration skipped:", imgErr);
+      }
     }
   } catch (err) {
     console.warn("ReactQuill configuration caught gracefully:", err);
@@ -920,6 +983,64 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     };
   }, [selectedImgEl, newLetterForm.content]);
 
+  // Free Drag-to-Move handler for Floating & Overlay Images (Word Style)
+  const startImageDragMove = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!selectedImgEl || !paperRef.current) return;
+
+    const paperRect = paperRef.current.getBoundingClientRect();
+    const imgRect = selectedImgEl.getBoundingClientRect();
+    const initialLeft = imgRect.left - paperRect.left;
+    const initialTop = imgRect.top - paperRect.top;
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    // Convert to absolute positioning if not already
+    if (selectedImgEl.style.position !== "absolute") {
+      selectedImgEl.style.position = "absolute";
+      selectedImgEl.style.left = `${initialLeft}px`;
+      selectedImgEl.style.top = `${initialTop}px`;
+      selectedImgEl.style.transform = "none";
+      selectedImgEl.style.margin = "0";
+      selectedImgEl.style.float = "none";
+      selectedImgEl.style.display = "inline-block";
+      selectedImgEl.style.zIndex = "20";
+      setSelectedImgWrap("in-front");
+    }
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+
+      let newLeft = initialLeft + deltaX;
+      let newTop = initialTop + deltaY;
+
+      // Constrain within paper boundaries
+      newLeft = Math.max(10, Math.min(paperRect.width - (imgRect.width || 80) - 10, newLeft));
+      newTop = Math.max(10, Math.min(paperRect.height - (imgRect.height || 40) - 10, newTop));
+
+      selectedImgEl.style.left = `${Math.round(newLeft)}px`;
+      selectedImgEl.style.top = `${Math.round(newTop)}px`;
+      selectedImgEl.style.transform = "none";
+      selectedImgEl.setAttribute("style", selectedImgEl.style.cssText);
+      updateImgOverlayRect();
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      if (selectedImgEl) {
+        selectedImgEl.setAttribute("style", selectedImgEl.style.cssText);
+      }
+      updateImgOverlayRect();
+      syncEditorContent();
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  };
+
   // Interactive 8-Handle Drag Resizing (Word Style)
   const startImageInteractiveResize = (e: React.MouseEvent, handle: string) => {
     e.preventDefault();
@@ -941,35 +1062,40 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
       let newHeight = startHeight;
 
       if (handle === "se") {
-        newWidth = Math.max(50, startWidth + deltaX);
+        newWidth = Math.max(40, startWidth + deltaX);
         newHeight = Math.round(newWidth * aspectRatio);
       } else if (handle === "sw") {
-        newWidth = Math.max(50, startWidth - deltaX);
+        newWidth = Math.max(40, startWidth - deltaX);
         newHeight = Math.round(newWidth * aspectRatio);
       } else if (handle === "ne") {
-        newWidth = Math.max(50, startWidth + deltaX);
+        newWidth = Math.max(40, startWidth + deltaX);
         newHeight = Math.round(newWidth * aspectRatio);
       } else if (handle === "nw") {
-        newWidth = Math.max(50, startWidth - deltaX);
+        newWidth = Math.max(40, startWidth - deltaX);
         newHeight = Math.round(newWidth * aspectRatio);
       } else if (handle === "e") {
-        newWidth = Math.max(50, startWidth + deltaX);
+        newWidth = Math.max(40, startWidth + deltaX);
       } else if (handle === "w") {
-        newWidth = Math.max(50, startWidth - deltaX);
+        newWidth = Math.max(40, startWidth - deltaX);
       } else if (handle === "s") {
-        newHeight = Math.max(30, startHeight + deltaY);
+        newHeight = Math.max(25, startHeight + deltaY);
         selectedImgEl.style.height = `${newHeight}px`;
+        selectedImgEl.setAttribute("height", `${newHeight}`);
       } else if (handle === "n") {
-        newHeight = Math.max(30, startHeight - deltaY);
+        newHeight = Math.max(25, startHeight - deltaY);
         selectedImgEl.style.height = `${newHeight}px`;
+        selectedImgEl.setAttribute("height", `${newHeight}`);
       }
 
       newWidth = Math.min(850, Math.round(newWidth));
       selectedImgEl.style.width = `${newWidth}px`;
+      selectedImgEl.setAttribute("width", `${newWidth}`);
       if (handle !== "s" && handle !== "n") {
         selectedImgEl.style.height = "auto";
+        selectedImgEl.removeAttribute("height");
       }
       selectedImgEl.style.maxWidth = "100%";
+      selectedImgEl.setAttribute("style", selectedImgEl.style.cssText);
       setSelectedImgPixelWidth(newWidth);
       updateImgOverlayRect();
     };
@@ -977,6 +1103,10 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     const onMouseUp = () => {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
+      if (selectedImgEl) {
+        selectedImgEl.setAttribute("style", selectedImgEl.style.cssText);
+        selectedImgEl.setAttribute("width", `${selectedImgEl.offsetWidth || selectedImgPixelWidth}`);
+      }
       updateImgOverlayRect();
       syncEditorContent();
     };
@@ -991,6 +1121,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     selectedImgEl.style.width = widthPercent;
     selectedImgEl.style.maxWidth = "100%";
     selectedImgEl.style.height = "auto";
+    selectedImgEl.setAttribute("width", widthPercent);
+    selectedImgEl.setAttribute("style", selectedImgEl.style.cssText);
     setSelectedImgWidth(widthPercent);
     if (selectedImgEl.offsetWidth) {
       setSelectedImgPixelWidth(selectedImgEl.offsetWidth);
@@ -1004,6 +1136,8 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     selectedImgEl.style.width = `${px}px`;
     selectedImgEl.style.maxWidth = "100%";
     selectedImgEl.style.height = "auto";
+    selectedImgEl.setAttribute("width", `${px}`);
+    selectedImgEl.setAttribute("style", selectedImgEl.style.cssText);
     setSelectedImgPixelWidth(px);
     updateImgOverlayRect();
     syncEditorContent();
@@ -1013,6 +1147,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     if (!selectedImgEl) return;
     const decimal = Math.max(0.05, Math.min(1, opacityPercent / 100));
     selectedImgEl.style.opacity = String(decimal);
+    selectedImgEl.setAttribute("style", selectedImgEl.style.cssText);
     setSelectedImgOpacity(opacityPercent);
     syncEditorContent();
   };
@@ -1028,7 +1163,12 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
       selectedImgEl.style.zIndex = "0";
       selectedImgEl.style.opacity = selectedImgEl.style.opacity || "0.15";
       selectedImgEl.style.pointerEvents = "auto";
+      selectedImgEl.style.margin = "0";
+      selectedImgEl.style.float = "none";
+      selectedImgEl.style.display = "inline-block";
+      selectedImgEl.style.cursor = "move";
       setSelectedImgOpacity(Math.round(parseFloat(selectedImgEl.style.opacity || "0.15") * 100));
+      setSelectedImgWrap("behind");
     } else {
       selectedImgEl.style.position = "relative";
       selectedImgEl.style.top = "auto";
@@ -1038,8 +1178,11 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
       selectedImgEl.style.opacity = "1";
       selectedImgEl.style.display = "block";
       selectedImgEl.style.margin = "12px auto";
+      selectedImgEl.style.cursor = "default";
       setSelectedImgOpacity(100);
+      setSelectedImgWrap("inline");
     }
+    selectedImgEl.setAttribute("style", selectedImgEl.style.cssText);
     setSelectedImgIsWatermark(nextVal);
     updateImgOverlayRect();
     syncEditorContent();
@@ -1049,20 +1192,56 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
     if (!selectedImgEl) return;
     const nextVal = !selectedImgMultiply;
     selectedImgEl.style.mixBlendMode = nextVal ? "multiply" : "normal";
+    
+    // When activating transparent background (e.g. stamp/signature), place it in front of text by default without pushing text
+    if (nextVal && selectedImgWrap === "inline") {
+      if (paperRef.current) {
+        const paperRect = paperRef.current.getBoundingClientRect();
+        const imgRect = selectedImgEl.getBoundingClientRect();
+        const curLeft = Math.max(20, imgRect.left - paperRect.left);
+        const curTop = Math.max(20, imgRect.top - paperRect.top);
+        selectedImgEl.style.position = "absolute";
+        selectedImgEl.style.left = `${curLeft}px`;
+        selectedImgEl.style.top = `${curTop}px`;
+        selectedImgEl.style.transform = "none";
+        selectedImgEl.style.margin = "0";
+        selectedImgEl.style.float = "none";
+        selectedImgEl.style.display = "inline-block";
+        selectedImgEl.style.zIndex = "20";
+        selectedImgEl.style.cursor = "move";
+        setSelectedImgWrap("in-front");
+      }
+    }
+    selectedImgEl.setAttribute("style", selectedImgEl.style.cssText);
     setSelectedImgMultiply(nextVal);
+    updateImgOverlayRect();
     syncEditorContent();
   };
 
   const updateSelectedImageAlign = (align: "right" | "center" | "left" | "float-right" | "float-left") => {
     if (!selectedImgEl) return;
     if (align === "float-right") {
+      selectedImgEl.style.position = "relative";
       selectedImgEl.style.display = "inline-block";
       selectedImgEl.style.float = "right";
       selectedImgEl.style.margin = "8px 0 8px 16px";
+      selectedImgEl.style.zIndex = "auto";
+      selectedImgEl.style.top = "auto";
+      selectedImgEl.style.left = "auto";
+      selectedImgEl.style.transform = "none";
+      setSelectedImgWrap("float-right");
+      setSelectedImgIsWatermark(false);
     } else if (align === "float-left") {
+      selectedImgEl.style.position = "relative";
       selectedImgEl.style.display = "inline-block";
       selectedImgEl.style.float = "left";
       selectedImgEl.style.margin = "8px 16px 8px 0";
+      selectedImgEl.style.zIndex = "auto";
+      selectedImgEl.style.top = "auto";
+      selectedImgEl.style.left = "auto";
+      selectedImgEl.style.transform = "none";
+      setSelectedImgWrap("float-left");
+      setSelectedImgIsWatermark(false);
     } else {
       selectedImgEl.style.float = "none";
       selectedImgEl.style.display = "block";
@@ -1077,6 +1256,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
         selectedImgEl.style.marginRight = "auto";
       }
     }
+    selectedImgEl.setAttribute("style", selectedImgEl.style.cssText);
     setSelectedImgAlign(align);
     updateImgOverlayRect();
     syncEditorContent();
@@ -1090,6 +1270,10 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
       selectedImgEl.style.display = "block";
       selectedImgEl.style.margin = "12px auto";
       selectedImgEl.style.zIndex = "auto";
+      selectedImgEl.style.top = "auto";
+      selectedImgEl.style.left = "auto";
+      selectedImgEl.style.transform = "none";
+      selectedImgEl.style.cursor = "default";
       setSelectedImgIsWatermark(false);
     } else if (wrap === "float-right") {
       selectedImgEl.style.position = "relative";
@@ -1097,6 +1281,10 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
       selectedImgEl.style.display = "inline-block";
       selectedImgEl.style.margin = "8px 0 8px 16px";
       selectedImgEl.style.zIndex = "auto";
+      selectedImgEl.style.top = "auto";
+      selectedImgEl.style.left = "auto";
+      selectedImgEl.style.transform = "none";
+      selectedImgEl.style.cursor = "default";
       setSelectedImgIsWatermark(false);
     } else if (wrap === "float-left") {
       selectedImgEl.style.position = "relative";
@@ -1104,24 +1292,56 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
       selectedImgEl.style.display = "inline-block";
       selectedImgEl.style.margin = "8px 16px 8px 0";
       selectedImgEl.style.zIndex = "auto";
+      selectedImgEl.style.top = "auto";
+      selectedImgEl.style.left = "auto";
+      selectedImgEl.style.transform = "none";
+      selectedImgEl.style.cursor = "default";
       setSelectedImgIsWatermark(false);
     } else if (wrap === "behind") {
+      if (paperRef.current && selectedImgEl.style.position !== "absolute") {
+        const paperRect = paperRef.current.getBoundingClientRect();
+        const imgRect = selectedImgEl.getBoundingClientRect();
+        const curLeft = Math.max(20, imgRect.left - paperRect.left);
+        const curTop = Math.max(20, imgRect.top - paperRect.top);
+        selectedImgEl.style.left = `${curLeft}px`;
+        selectedImgEl.style.top = `${curTop}px`;
+      } else if (!selectedImgEl.style.top) {
+        selectedImgEl.style.top = "50%";
+        selectedImgEl.style.left = "50%";
+        selectedImgEl.style.transform = "translate(-50%, -50%)";
+      }
       selectedImgEl.style.position = "absolute";
-      selectedImgEl.style.top = "50%";
-      selectedImgEl.style.left = "50%";
-      selectedImgEl.style.transform = "translate(-50%, -50%)";
       selectedImgEl.style.zIndex = "0";
+      selectedImgEl.style.float = "none";
+      selectedImgEl.style.margin = "0";
+      selectedImgEl.style.display = "inline-block";
+      selectedImgEl.style.cursor = "move";
       selectedImgEl.style.opacity = selectedImgEl.style.opacity || "0.15";
       setSelectedImgIsWatermark(true);
       setSelectedImgOpacity(Math.round(parseFloat(selectedImgEl.style.opacity || "0.15") * 100));
     } else if (wrap === "in-front") {
-      selectedImgEl.style.position = "relative";
+      if (paperRef.current && selectedImgEl.style.position !== "absolute") {
+        const paperRect = paperRef.current.getBoundingClientRect();
+        const imgRect = selectedImgEl.getBoundingClientRect();
+        const curLeft = Math.max(20, imgRect.left - paperRect.left);
+        const curTop = Math.max(20, imgRect.top - paperRect.top);
+        selectedImgEl.style.left = `${curLeft}px`;
+        selectedImgEl.style.top = `${curTop}px`;
+      } else if (!selectedImgEl.style.top) {
+        selectedImgEl.style.top = "100px";
+        selectedImgEl.style.left = "100px";
+      }
+      selectedImgEl.style.position = "absolute";
       selectedImgEl.style.float = "none";
-      selectedImgEl.style.display = "block";
-      selectedImgEl.style.margin = "12px auto";
-      selectedImgEl.style.zIndex = "10";
+      selectedImgEl.style.display = "inline-block";
+      selectedImgEl.style.margin = "0";
+      selectedImgEl.style.zIndex = "20";
+      selectedImgEl.style.transform = "none";
+      selectedImgEl.style.cursor = "move";
+      selectedImgEl.style.pointerEvents = "auto";
       setSelectedImgIsWatermark(false);
     }
+    selectedImgEl.setAttribute("style", selectedImgEl.style.cssText);
     setSelectedImgWrap(wrap);
     setShowImageLayoutPopover(false);
     updateImgOverlayRect();
@@ -5419,7 +5639,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                     </div>
                   </div>
 
-                  {/* Floating Image Control Bar with Mouse Resizing, Watermark & Opacity Controls */}
+                  {/* Floating Image Control Bar with Mouse Resizing, Watermark, Layout & Opacity Controls */}
                   {selectedImgEl && (
                     <div
                       id="image-floating-toolbar"
@@ -5428,7 +5648,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="flex items-center gap-1.5 bg-indigo-900 px-2.5 py-1 rounded-lg font-bold border border-indigo-700">
                           <ImageIcon size={14} className="text-cyan-400" />
-                          <span className="text-cyan-200">تنظیمات تصویر انتخابی:</span>
+                          <span className="text-cyan-200">تنظیمات تصویر:</span>
                         </div>
 
                         {/* Resize with presets & slider */}
@@ -5465,7 +5685,7 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                           </button>
                           <input
                             type="range"
-                            min={60}
+                            min={40}
                             max={800}
                             step={10}
                             value={selectedImgPixelWidth}
@@ -5475,54 +5695,70 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                           />
                         </div>
 
-                        {/* Background Opacity & Blur Slider */}
-                        <div className="flex items-center gap-1.5 bg-indigo-900/60 px-2.5 py-1 rounded-lg border border-indigo-700/60">
-                          <span className="text-indigo-300 font-semibold text-[11px]">محو و شفافیت:</span>
-                          <input
-                            type="range"
-                            min={10}
-                            max={100}
-                            step={5}
-                            value={selectedImgOpacity}
-                            onChange={(e) => updateSelectedImageOpacity(Number(e.target.value))}
-                            className="w-20 accent-cyan-400 cursor-pointer h-1.5"
-                            title="تنظیم درصد شفافیت تصویر"
-                          />
-                          <span className="font-mono text-cyan-300 font-bold text-[11px] min-w-[32px]">
-                            {selectedImgOpacity}٪
-                          </span>
+                        {/* Layout & Text Wrapping Modes (In Front of Text, Behind Text, Float, Inline) */}
+                        <div className="flex items-center gap-1 bg-indigo-900/60 p-1 rounded-lg border border-indigo-700/60">
+                          <span className="text-indigo-300 font-semibold text-[11px] px-1">موقعیت و متن:</span>
                           <button
                             type="button"
-                            onClick={() => updateSelectedImageOpacity(15)}
-                            className="px-1.5 py-0.5 rounded bg-indigo-800 hover:bg-indigo-700 text-[10px] text-amber-300 font-bold"
-                            title="واترمارک محو ۱۵٪"
+                            onClick={() => updateSelectedImageWrap("in-front")}
+                            className={`px-2 py-0.5 rounded text-[11px] font-bold flex items-center gap-1 transition-all ${
+                              selectedImgWrap === "in-front"
+                                ? "bg-cyan-500 text-slate-950 shadow-sm"
+                                : "hover:bg-indigo-800 text-indigo-200"
+                            }`}
+                            title="قرارگیری شناور روی متن (بدون جابجایی و به هم ریختگی خطوط متن)"
                           >
-                            واترمارک
+                            <span>روی متن</span>
                           </button>
                           <button
                             type="button"
-                            onClick={() => updateSelectedImageOpacity(100)}
-                            className="px-1.5 py-0.5 rounded bg-indigo-800 hover:bg-indigo-700 text-[10px] text-emerald-300 font-bold"
-                            title="شفافیت کامل ۱۰۰٪"
+                            onClick={() => updateSelectedImageWrap("behind")}
+                            className={`px-2 py-0.5 rounded text-[11px] font-bold flex items-center gap-1 transition-all ${
+                              selectedImgWrap === "behind"
+                                ? "bg-amber-500 text-slate-950 shadow-sm"
+                                : "hover:bg-indigo-800 text-indigo-200"
+                            }`}
+                            title="قرارگیری در پشت متن (زیر متن اداری / پس‌زمینه)"
                           >
-                            ۱۰۰٪
+                            <span>پشت متن</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedImageWrap("float-right")}
+                            className={`px-1.5 py-0.5 rounded text-[11px] font-bold transition-all ${
+                              selectedImgWrap === "float-right"
+                                ? "bg-indigo-600 text-white shadow-sm"
+                                : "hover:bg-indigo-800 text-indigo-200"
+                            }`}
+                            title="دورپیچی متن (شناور سمت راست)"
+                          >
+                            <span>دورپیچ راست</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedImageWrap("float-left")}
+                            className={`px-1.5 py-0.5 rounded text-[11px] font-bold transition-all ${
+                              selectedImgWrap === "float-left"
+                                ? "bg-indigo-600 text-white shadow-sm"
+                                : "hover:bg-indigo-800 text-indigo-200"
+                            }`}
+                            title="دورپیچی متن (شناور سمت چپ)"
+                          >
+                            <span>دورپیچ چپ</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedImageWrap("inline")}
+                            className={`px-1.5 py-0.5 rounded text-[11px] font-bold transition-all ${
+                              selectedImgWrap === "inline"
+                                ? "bg-indigo-600 text-white shadow-sm"
+                                : "hover:bg-indigo-800 text-indigo-200"
+                            }`}
+                            title="در خط با متن (وسط پاراگراف)"
+                          >
+                            <span>در خط</span>
                           </button>
                         </div>
-
-                        {/* Watermark mode toggle */}
-                        <button
-                          type="button"
-                          onClick={toggleSelectedImageWatermark}
-                          className={`px-2.5 py-1 rounded-lg font-bold border transition-colors flex items-center gap-1 ${
-                            selectedImgIsWatermark
-                              ? "bg-amber-500 text-slate-900 border-amber-400"
-                              : "bg-indigo-800 hover:bg-indigo-700 text-indigo-100 border-indigo-600"
-                          }`}
-                          title="قرار دادن تصویر در پس‌زمینه (پشت متن نامه اداری)"
-                        >
-                          <Layers size={13} />
-                          <span>{selectedImgIsWatermark ? "✓ در پس‌زمینه (زیر متن)" : "قرارگیری در پس‌زمینه"}</span>
-                        </button>
 
                         {/* Transparent White Background (Multiply) */}
                         <button
@@ -5530,55 +5766,67 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                           onClick={toggleSelectedImageMultiply}
                           className={`px-2.5 py-1 rounded-lg font-bold border transition-colors flex items-center gap-1 ${
                             selectedImgMultiply
-                              ? "bg-emerald-500 text-slate-900 border-emerald-400"
+                              ? "bg-emerald-500 text-slate-900 border-emerald-400 shadow-sm"
                               : "bg-indigo-800 hover:bg-indigo-700 text-indigo-100 border-indigo-600"
                           }`}
-                          title="حذف پس‌زمینه سفید تصویر (مناسب برای امضا، مهر و لوگو)"
+                          title="حذف پس‌زمینه سفید و قرارگیری شفاف روی متن (مخصوص امضا، مهر شرکت و نشان‌ها)"
                         >
                           <Sparkles size={13} />
-                          <span>{selectedImgMultiply ? "✓ حذف پس‌زمینه سفید (فعال)" : "حذف پس‌زمینه سفید"}</span>
+                          <span>{selectedImgMultiply ? "✓ حذف پس‌زمینه سفید (روی متن)" : "حذف پس‌زمینه سفید"}</span>
                         </button>
 
-                        {/* Alignment */}
-                        <div className="flex items-center gap-0.5 bg-indigo-900/60 p-0.5 rounded-lg border border-indigo-700/60">
-                          <button
-                            type="button"
-                            onClick={() => updateSelectedImageAlign("right")}
-                            className={`px-2 py-0.5 rounded font-bold ${selectedImgAlign === "right" ? "bg-cyan-600 text-white" : "hover:bg-indigo-700 text-indigo-200"}`}
-                            title="راست‌چین"
-                          >
-                            راست
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateSelectedImageAlign("center")}
-                            className={`px-2 py-0.5 rounded font-bold ${selectedImgAlign === "center" ? "bg-cyan-600 text-white" : "hover:bg-indigo-700 text-indigo-200"}`}
-                            title="وسط‌چین"
-                          >
-                            وسط
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateSelectedImageAlign("left")}
-                            className={`px-2 py-0.5 rounded font-bold ${selectedImgAlign === "left" ? "bg-cyan-600 text-white" : "hover:bg-indigo-700 text-indigo-200"}`}
-                            title="چپ‌چین"
-                          >
-                            چپ
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateSelectedImageAlign("float-right")}
-                            className={`px-2 py-0.5 rounded font-bold ${selectedImgAlign === "float-right" ? "bg-cyan-600 text-white" : "hover:bg-indigo-700 text-indigo-200"}`}
-                            title="دورپیچی متن (شناور راست)"
-                          >
-                            دورپیچ
-                          </button>
+                        {/* Background Opacity & Blur Slider */}
+                        <div className="flex items-center gap-1.5 bg-indigo-900/60 px-2.5 py-1 rounded-lg border border-indigo-700/60">
+                          <span className="text-indigo-300 font-semibold text-[11px]">شفافیت:</span>
+                          <input
+                            type="range"
+                            min={10}
+                            max={100}
+                            step={5}
+                            value={selectedImgOpacity}
+                            onChange={(e) => updateSelectedImageOpacity(Number(e.target.value))}
+                            className="w-16 accent-cyan-400 cursor-pointer h-1.5"
+                            title="تنظیم درصد شفافیت تصویر"
+                          />
+                          <span className="font-mono text-cyan-300 font-bold text-[11px] min-w-[28px]">
+                            {selectedImgOpacity}٪
+                          </span>
                         </div>
+
+                        {/* Alignment (for inline mode) */}
+                        {selectedImgWrap === "inline" && (
+                          <div className="flex items-center gap-0.5 bg-indigo-900/60 p-0.5 rounded-lg border border-indigo-700/60">
+                            <button
+                              type="button"
+                              onClick={() => updateSelectedImageAlign("right")}
+                              className={`px-2 py-0.5 rounded font-bold ${selectedImgAlign === "right" ? "bg-cyan-600 text-white" : "hover:bg-indigo-700 text-indigo-200"}`}
+                              title="راست‌چین"
+                            >
+                              راست
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateSelectedImageAlign("center")}
+                              className={`px-2 py-0.5 rounded font-bold ${selectedImgAlign === "center" ? "bg-cyan-600 text-white" : "hover:bg-indigo-700 text-indigo-200"}`}
+                              title="وسط‌چین"
+                            >
+                              وسط
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateSelectedImageAlign("left")}
+                              className={`px-2 py-0.5 rounded font-bold ${selectedImgAlign === "left" ? "bg-cyan-600 text-white" : "hover:bg-indigo-700 text-indigo-200"}`}
+                              title="چپ‌چین"
+                            >
+                              چپ
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-cyan-200 hidden md:inline">
-                          💡 با کشیدن گوشه‌های آبی تصویر با ماوس، اندازه تغییر می‌کند
+                        <span className="text-[10px] text-cyan-200 hidden xl:inline">
+                          💡 برای جابجایی تصویر، آیکون حرکت را بکشید یا آن را جابجا کنید
                         </span>
                         <button
                           type="button"
@@ -6045,112 +6293,114 @@ const SecretariatModule: React.FC<SecretariatModuleProps> = ({
                                     height: `${imgOverlayBox.height}px`,
                                   }}
                                 >
-                                  {/* Selection bounding outline */}
-                                  <div className="absolute inset-0 border-2 border-blue-500 rounded-xs shadow-sm ring-1 ring-blue-300/60 pointer-events-none" />
+                                  {/* Selection bounding outline & drag-to-move surface */}
+                                  <div
+                                    onMouseDown={startImageDragMove}
+                                    className="absolute inset-0 border-2 border-blue-500 rounded-xs shadow-sm ring-1 ring-blue-300/60 pointer-events-auto cursor-move bg-blue-500/5 hover:bg-blue-500/10 transition-colors"
+                                    title="برای جابجایی تصویر روی صفحه کلیک کرده و بکشید (Drag & Move)"
+                                  />
 
-                                  {/* Rotation handle */}
-                                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-auto">
+                                  {/* Move & Rotation handles pill on top */}
+                                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 flex items-center gap-1.5 pointer-events-auto bg-blue-600 text-white px-2 py-0.5 rounded-full shadow-md text-[10px] font-bold">
+                                    <button
+                                      type="button"
+                                      onMouseDown={startImageDragMove}
+                                      className="flex items-center gap-1 cursor-move hover:text-cyan-200"
+                                      title="کلیک و درگ برای جابجایی آزاد روی متن"
+                                    >
+                                      <Move size={12} />
+                                      <span>جابجایی</span>
+                                    </button>
+                                    <div className="w-px h-3 bg-blue-400" />
                                     <button
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         rotateSelectedImage(90);
                                       }}
-                                      className="w-5 h-5 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shadow-md cursor-pointer transition-transform hover:scale-110"
+                                      className="flex items-center hover:text-cyan-200"
                                       title="چرخش ۹۰ درجه تصویر"
                                     >
-                                      <RotateCw size={11} />
+                                      <RotateCw size={12} />
                                     </button>
-                                    <div className="w-0.5 h-2 bg-blue-500" />
                                   </div>
 
                                   {/* 4 Corner Handles (NW, NE, SW, SE) */}
                                   <div
                                     onMouseDown={(e) => startImageInteractiveResize(e, "nw")}
-                                    className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-nwse-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-nwse-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform z-40"
                                     title="تغییر سایز گوشه چپ بالا"
                                   />
                                   <div
                                     onMouseDown={(e) => startImageInteractiveResize(e, "ne")}
-                                    className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-nesw-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-nesw-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform z-40"
                                     title="تغییر سایز گوشه راست بالا"
                                   />
                                   <div
                                     onMouseDown={(e) => startImageInteractiveResize(e, "sw")}
-                                    className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-nesw-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-nesw-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform z-40"
                                     title="تغییر سایز گوشه چپ پایین"
                                   />
                                   <div
                                     onMouseDown={(e) => startImageInteractiveResize(e, "se")}
-                                    className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-nwse-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-nwse-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform z-40"
                                     title="تغییر سایز گوشه راست پایین"
                                   />
 
                                   {/* 4 Edge Handles (N, S, W, E) */}
                                   <div
                                     onMouseDown={(e) => startImageInteractiveResize(e, "n")}
-                                    className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-ns-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-ns-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform z-40"
                                     title="تغییر ارتفاع از بالا"
                                   />
                                   <div
                                     onMouseDown={(e) => startImageInteractiveResize(e, "s")}
-                                    className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-ns-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-ns-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform z-40"
                                     title="تغییر ارتفاع از پایین"
                                   />
                                   <div
                                     onMouseDown={(e) => startImageInteractiveResize(e, "w")}
-                                    className="absolute top-1/2 -translate-y-1/2 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-ew-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    className="absolute top-1/2 -translate-y-1/2 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-ew-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform z-40"
                                     title="تغییر عرض از چپ"
                                   />
                                   <div
                                     onMouseDown={(e) => startImageInteractiveResize(e, "e")}
-                                    className="absolute top-1/2 -translate-y-1/2 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-ew-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform"
+                                    className="absolute top-1/2 -translate-y-1/2 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs cursor-ew-resize shadow-md pointer-events-auto hover:bg-blue-100 hover:scale-125 transition-transform z-40"
                                     title="تغییر عرض از راست"
                                   />
 
                                   {/* Quick Layout Action Pill */}
-                                  <div className="absolute -top-8 right-0 flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md shadow-lg px-1.5 py-0.5 pointer-events-auto">
+                                  <div className="absolute -top-8 right-0 flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md shadow-lg px-1.5 py-0.5 pointer-events-auto z-40">
                                     <button
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        updateSelectedImageAlign("right");
+                                        updateSelectedImageWrap("in-front");
                                       }}
-                                      className={`p-1 rounded text-xs hover:bg-slate-100 dark:hover:bg-slate-700 ${selectedImgAlign === "right" ? "text-blue-600 font-bold" : "text-slate-600"}`}
-                                      title="راست‌چین"
+                                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${selectedImgWrap === "in-front" ? "bg-cyan-600 text-white" : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"}`}
+                                      title="شناور روی متن (بدون جابجایی خطوط متن)"
                                     >
-                                      <AlignRight size={13} />
+                                      روی متن
                                     </button>
                                     <button
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        updateSelectedImageAlign("center");
+                                        toggleSelectedImageMultiply();
                                       }}
-                                      className={`p-1 rounded text-xs hover:bg-slate-100 dark:hover:bg-slate-700 ${selectedImgAlign === "center" ? "text-blue-600 font-bold" : "text-slate-600"}`}
-                                      title="وسط‌چین"
+                                      className={`p-1 rounded text-xs hover:bg-slate-100 dark:hover:bg-slate-700 ${selectedImgMultiply ? "text-emerald-600 font-bold" : "text-slate-600"}`}
+                                      title="حذف پس‌زمینه سفید تصویر (مهر و امضا)"
                                     >
-                                      <AlignCenter size={13} />
+                                      <Sparkles size={13} />
                                     </button>
                                     <button
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        updateSelectedImageAlign("left");
+                                        updateSelectedImageWrap("behind");
                                       }}
-                                      className={`p-1 rounded text-xs hover:bg-slate-100 dark:hover:bg-slate-700 ${selectedImgAlign === "left" ? "text-blue-600 font-bold" : "text-slate-600"}`}
-                                      title="چپ‌چین"
-                                    >
-                                      <AlignLeft size={13} />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        toggleSelectedImageWatermark();
-                                      }}
-                                      className={`p-1 rounded text-xs hover:bg-slate-100 dark:hover:bg-slate-700 ${selectedImgIsWatermark ? "text-amber-600 font-bold" : "text-slate-600"}`}
-                                      title="قرار دادن به عنوان واترمارک"
+                                      className={`p-1 rounded text-xs hover:bg-slate-100 dark:hover:bg-slate-700 ${selectedImgWrap === "behind" ? "text-amber-600 font-bold" : "text-slate-600"}`}
+                                      title="قرار دادن در پشت متن (واترمارک)"
                                     >
                                       <Layers size={13} />
                                     </button>

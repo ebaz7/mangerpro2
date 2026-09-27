@@ -2389,6 +2389,21 @@ app.get('/api/warehouse-overview/data', (req, res) => {
     }
 });
 
+app.post('/api/warehouse-overview/excluded', (req, res) => {
+    try {
+        const db = getDb();
+        const overview = db.warehouseOverview || {};
+        overview.excludedRegistrationNumbers = Array.isArray(req.body?.excluded) ? req.body.excluded : [];
+        if (!overview.meta) overview.meta = {};
+        overview.meta.excludedRegistrationNumbers = overview.excludedRegistrationNumbers;
+        db.warehouseOverview = overview;
+        saveDb(db);
+        res.json({ success: true, count: overview.excludedRegistrationNumbers.length });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get('/api/warehouse-overview/live-status', async (req, res) => {
     try {
         const db = getDb();
@@ -2396,28 +2411,19 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
         const sayanUrl = settings.sayanApiUrl || process.env.SAYAN_API_URL;
         const sayanKey = settings.sayanApiKey || process.env.SAYAN_API_KEY;
 
-        if (!sayanUrl || !sayanKey) {
-            const meta = db.warehouseOverview?.meta || {};
-            return res.json({
-                success: true,
-                isMock: false,
-                message: 'تنظیمات ارتباط زنده سایان ثبت نشده؛ استفاده از آخرین تراز ذخیره‌شده',
-                meta: {
-                    totalCurrentAllWeight: meta.totalCurrentAllWeight !== undefined ? meta.totalCurrentAllWeight : 0,
-                    diffAllWeight: meta.diffAllWeight !== undefined ? meta.diffAllWeight : 0,
-                    ratioAllWeight: meta.ratioAllWeight !== undefined ? meta.ratioAllWeight : 0,
-                    totalPositiveWeight: meta.totalPositiveWeight !== undefined ? meta.totalPositiveWeight : 0,
-                    totalNegativeWeight: meta.totalNegativeWeight !== undefined ? meta.totalNegativeWeight : 0,
-                    reportDate: meta.reportDate || ''
-                }
-            });
-        }
+        let queryExcluded = [];
+        try {
+            if (req.query.excluded) {
+                queryExcluded = typeof req.query.excluded === 'string' ? JSON.parse(req.query.excluded) : req.query.excluded;
+            }
+        } catch {}
 
         const overview = db.warehouseOverview || {};
         const meta = overview.meta || {};
         const isCumulative = meta.cumulativeFromLastYear !== undefined ? meta.cumulativeFromLastYear : true;
 
         const excludedList = [
+            ...(Array.isArray(queryExcluded) ? queryExcluded : []),
             ...(Array.isArray(overview.excludedRegistrationNumbers) ? overview.excludedRegistrationNumbers : []),
             ...(Array.isArray(meta.excludedRegistrationNumbers) ? meta.excludedRegistrationNumbers : [])
         ].map(x => String(x).trim()).filter(Boolean);
@@ -2433,6 +2439,24 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
                 (id !== '' && excludedList.includes(id))
             );
         };
+
+        if (!sayanUrl || !sayanKey) {
+            const rawCurrentAll = meta.totalCurrentAllWeight !== undefined ? meta.totalCurrentAllWeight : 0;
+            const rawDiffAll = meta.diffAllWeight !== undefined ? meta.diffAllWeight : 0;
+            return res.json({
+                success: true,
+                isMock: false,
+                message: 'تنظیمات ارتباط زنده سایان ثبت نشده؛ استفاده از آخرین تراز ذخیره‌شده',
+                meta: {
+                    totalCurrentAllWeight: rawCurrentAll,
+                    diffAllWeight: rawDiffAll,
+                    ratioAllWeight: meta.ratioAllWeight !== undefined ? meta.ratioAllWeight : 0,
+                    totalPositiveWeight: meta.totalPositiveWeight !== undefined ? meta.totalPositiveWeight : 0,
+                    totalNegativeWeight: meta.totalNegativeWeight !== undefined ? meta.totalNegativeWeight : 0,
+                    reportDate: meta.reportDate || ''
+                }
+            });
+        }
 
         const getJalaliYear = (jalaliStr) => {
             const clean = String(jalaliStr || '').trim()
@@ -2783,21 +2807,24 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
         const baseTransit = (overview.goodsInTransit || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)) && !isItemExcluded(x));
         const basePurchase = (overview.purchasingGoods || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)) && !isItemExcluded(x));
         const baseDomestic = (overview.domesticPurchases || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)) && !isItemExcluded(x));
+        const baseCommercial = (overview.commercialGoods || []).filter((x) => !isItemExcluded({ id: x.id, registrationNumber: x.itemName }));
 
         const mergedBasePurchaseAndTransit = [...basePurchase, ...baseTransit];
 
         const finalGoodsInCustoms = [...baseCustoms, ...parsedCommercialCustoms];
         const finalPurchasingGoods = [...mergedBasePurchaseAndTransit, ...parsedCommercialPurchaseAndTransit];
         const finalDomesticPurchases = [...baseDomestic, ...parsedCommercialDomesticPurchases];
+        const finalCommercialGoods = [...baseCommercial];
 
         const calculateCustomTableSum = (items, field) => (items || []).reduce((sum, r) => sum + (parseFloat(r[field]) || 0), 0);
 
         const customs = calculateCustomTableSum(finalGoodsInCustoms, 'weight');
         const purchase = calculateCustomTableSum(finalPurchasingGoods, 'weight');
         const domestic = calculateCustomTableSum(finalDomesticPurchases, 'weight');
+        const commercial = calculateCustomTableSum(finalCommercialGoods, 'weight');
         const transit = 0;
 
-        const totalCurrentRawWeight = bg + transit + customs + purchase + domestic;
+        const totalCurrentRawWeight = bg + transit + customs + purchase + domestic + commercial;
 
         const totalLastYearAllWeight = totalLastYearYarnsWeight + totalLastYearRawWeight;
         const totalCurrentAllWeight = totalCurrentYarnsWeight + totalCurrentRawWeight;

@@ -1207,14 +1207,14 @@ export const WarehouseOverviewTab: React.FC = () => {
     // Aligned list of Manufactured Yarn Groups (Starting with 04 by default, plus DTY)
     const alignedYarns = useMemo(() => {
         const groups = getSectionGroups(true, MANUFACTURED_GROUPS);
-        return groups.filter(g => itemCategories[g.code] !== 'other');
-    }, [sayanLastYear, sayanCurrent, itemCategories]);
+        return groups.filter(g => itemCategories[g.code] !== 'other' && !isItemExcluded({ id: g.code, registrationNumber: g.code, proforma: g.code }));
+    }, [sayanLastYear, sayanCurrent, itemCategories, excludedRegistrationNumbers]);
 
     // Aligned list of Raw Material Groups (Starting with 01 by default, plus FDY, الیاف, نخ ملت)
     const alignedImported = useMemo(() => {
         const groups = getSectionGroups(false, RAW_MATERIAL_GROUPS);
-        return groups.filter(g => itemCategories[g.code] !== 'other');
-    }, [sayanLastYear, sayanCurrent, itemCategories]);
+        return groups.filter(g => itemCategories[g.code] !== 'other' && !isItemExcluded({ id: g.code, registrationNumber: g.code, proforma: g.code }));
+    }, [sayanLastYear, sayanCurrent, itemCategories, excludedRegistrationNumbers]);
 
     // Filters based on search input
     const filteredYarns = useMemo(() => {
@@ -1351,8 +1351,9 @@ export const WarehouseOverviewTab: React.FC = () => {
         const customs = calculateCustomTableSum(visibleGoodsInCustoms, 'container');
         const purchase = calculateCustomTableSum(visiblePurchasingGoods, 'container');
         const domestic = calculateCustomTableSum(visibleDomesticPurchases, 'container');
-        return bg + transit + customs + purchase + domestic;
-    }, [visibleGoodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, currentOverrides, alignedYarns, alignedImported]);
+        const commercial = calculateCustomTableSum(visibleCommercialGoods, 'container');
+        return bg + transit + customs + purchase + domestic + commercial;
+    }, [visibleGoodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, visibleCommercialGoods, currentOverrides, alignedYarns, alignedImported]);
 
     const totalLastYearDollars = useMemo(() => {
         return calculateTotalSayanSum(true, 'dollars');
@@ -1364,8 +1365,9 @@ export const WarehouseOverviewTab: React.FC = () => {
         const customs = calculateCustomTableSum(visibleGoodsInCustoms, 'dollars');
         const purchase = calculateCustomTableSum(visiblePurchasingGoods, 'dollars');
         const domestic = calculateCustomTableSum(visibleDomesticPurchases, 'dollars');
-        return bg + transit + customs + purchase + domestic;
-    }, [visibleGoodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, currentOverrides, alignedYarns, alignedImported]);
+        const commercial = calculateCustomTableSum(visibleCommercialGoods, 'dollars');
+        return bg + transit + customs + purchase + domestic + commercial;
+    }, [visibleGoodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, visibleCommercialGoods, currentOverrides, alignedYarns, alignedImported]);
 
     // Difference and ratio formulas matching the PDF
     const diffContainers = totalCurrentContainers - totalLastYearContainers;
@@ -1401,8 +1403,9 @@ export const WarehouseOverviewTab: React.FC = () => {
         const customs = calculateCustomTableSum(visibleGoodsInCustoms, 'weight');
         const purchase = calculateCustomTableSum(visiblePurchasingGoods, 'weight');
         const domestic = calculateCustomTableSum(visibleDomesticPurchases, 'weight');
-        return bg + transit + customs + purchase + domestic;
-    }, [alignedImported, visibleGoodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, currentOverrides, sayanCurrent]);
+        const commercial = calculateCustomTableSum(visibleCommercialGoods, 'weight');
+        return bg + transit + customs + purchase + domestic + commercial;
+    }, [alignedImported, visibleGoodsInTransit, visibleGoodsInCustoms, visiblePurchasingGoods, visibleDomesticPurchases, visibleCommercialGoods, currentOverrides, sayanCurrent]);
 
     const diffRawWeight = totalCurrentRawWeight - totalLastYearRawWeight;
     const ratioRawWeight = totalLastYearRawWeight > 0 ? (diffRawWeight / totalLastYearRawWeight) * 100 : 0;
@@ -2078,6 +2081,17 @@ export const WarehouseOverviewTab: React.FC = () => {
                                         <span className="font-mono text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-bold mr-1">{group.code}</span>
                                         <span className="font-bold text-slate-900">{group.name}</span>
                                         <span className="text-[10px] text-slate-400 font-normal mr-1">({childItems.length} کالا)</span>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                toggleExcludeRegistration(group.code, group.name);
+                                            }}
+                                            className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 transition-all cursor-pointer mr-auto"
+                                            title="حذف/مخفی‌سازی این گروه کالا از گزارش و تراز وزنی"
+                                        >
+                                            <EyeOff className="w-3.5 h-3.5" />
+                                        </button>
                                     </td>
                                     <td className="py-2 px-1">
                                         {isEditMode ? (
@@ -2109,6 +2123,17 @@ export const WarehouseOverviewTab: React.FC = () => {
                                             <span className="text-slate-300 font-bold select-none">↳</span>
                                             <span className="font-mono text-[9px] bg-slate-100 text-slate-500 px-1 py-0.5 rounded mr-1 select-all">{child.itemCode}</span>
                                             <span className="font-semibold text-slate-800">{child.itemName}</span>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    toggleExcludeRegistration(child.itemCode, child.itemName);
+                                                }}
+                                                className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 transition-all cursor-pointer mr-auto"
+                                                title="حذف/مخفی‌سازی این کالا از گزارش و تراز وزنی"
+                                            >
+                                                <EyeOff className="w-3 h-3" />
+                                            </button>
                                         </td>
                                         <td className="py-2 px-1">
                                             <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-semibold select-none">کالا</span>
@@ -2157,6 +2182,17 @@ export const WarehouseOverviewTab: React.FC = () => {
                                         <span className="font-mono text-[10px] bg-teal-50 text-teal-600 px-1.5 py-0.5 rounded font-bold mr-1">{group.code}</span>
                                         <span className="font-bold text-slate-900">{group.name}</span>
                                         <span className="text-[10px] text-slate-400 font-normal mr-1">({childItems.length} کالا)</span>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                toggleExcludeRegistration(group.code, group.name);
+                                            }}
+                                            className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 transition-all cursor-pointer mr-auto"
+                                            title="حذف/مخفی‌سازی این گروه کالا از گزارش و تراز وزنی"
+                                        >
+                                            <EyeOff className="w-3.5 h-3.5" />
+                                        </button>
                                     </td>
                                     <td className="py-2 px-1">
                                         {isEditMode ? (
@@ -2188,6 +2224,17 @@ export const WarehouseOverviewTab: React.FC = () => {
                                             <span className="text-slate-300 font-bold select-none">↳</span>
                                             <span className="font-mono text-[9px] bg-slate-100 text-slate-500 px-1 py-0.5 rounded mr-1 select-all">{child.itemCode}</span>
                                             <span className="font-semibold text-slate-800">{child.itemName}</span>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    toggleExcludeRegistration(child.itemCode, child.itemName);
+                                                }}
+                                                className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 transition-all cursor-pointer mr-auto"
+                                                title="حذف/مخفی‌سازی این کالا از گزارش و تراز وزنی"
+                                            >
+                                                <EyeOff className="w-3 h-3" />
+                                            </button>
                                         </td>
                                         <td className="py-2 px-1">
                                             <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-semibold select-none">کالا</span>
@@ -2853,6 +2900,155 @@ export const WarehouseOverviewTab: React.FC = () => {
                 </div>
             </div>
 
+            {/* TOP WEIGHT BALANCE & SUMMARY WIDGET (خلاصه تراز وزنی و عملکرد سالانه در بالای صفحه) */}
+            <div id="section-summary" className="bg-white p-3.5 sm:p-6 rounded-none sm:rounded-2xl border-y sm:border border-slate-200 shadow-sm space-y-4 w-full max-w-5xl mx-auto scroll-mt-28">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
+                            <Scale className="w-4 h-4" />
+                        </div>
+                        <div>
+                            <h4 className="font-black text-slate-800 text-sm sm:text-base flex items-center gap-2">
+                                <span>داشبورد تراز وزنی کل زنجیره تامین و انبارها</span>
+                                {excludedRegistrationNumbers.length > 0 && (
+                                    <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full border border-amber-200">
+                                        با احتساب {excludedRegistrationNumbers.length.toLocaleString('fa-IR')} مورد استثنا
+                                    </span>
+                                )}
+                            </h4>
+                            <p className="text-[11px] text-slate-500 font-medium">پایش لحظه‌ای تراز وزنی سال جاری ({report2Label}) نسبت به سال گذشته ({report1Label})</p>
+                        </div>
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={() => scrollToSection('section-variance-matrix')}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 hover:underline"
+                    >
+                        <span>مشاهده ماتریس تفصیلی</span>
+                        <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                </div>
+
+                {/* 4 Comprehensive Metric Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                    {/* 1. Factory Production Yarns Weight */}
+                    <div className="p-3.5 bg-gradient-to-br from-blue-50/60 to-slate-50 rounded-xl border border-blue-100/80 flex flex-col justify-between space-y-2">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                                <Package className="w-3.5 h-3.5 text-blue-600" />
+                                <span>نخ‌های تولیدی کارخانه</span>
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isYarnsDownward ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                {isYarnsDownward ? '🔻 تراز منفی' : '📈 تراز مثبت'}
+                            </span>
+                        </div>
+                        <div>
+                            <div className="text-[11px] text-slate-500 font-medium flex justify-between">
+                                <span>پارسال: {(totalLastYearYarnsWeight / 1000).toFixed(2)} تن</span>
+                                <span>امسال: {(totalCurrentYarnsWeight / 1000).toFixed(2)} تن</span>
+                            </div>
+                            <div className="text-lg font-black text-slate-800 font-mono mt-0.5" dir="ltr">
+                                {diffYarnsWeight >= 0 ? `+${(diffYarnsWeight / 1000).toFixed(2)}` : (diffYarnsWeight / 1000).toFixed(2)} <span className="text-xs font-normal text-slate-500">تن</span>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-100">
+                            <span className="text-slate-500 font-medium text-[11px]">درصد تغییر:</span>
+                            <span className={`font-mono font-bold flex items-center gap-0.5 text-xs ${ratioYarnsWeight < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                {ratioYarnsWeight < 0 ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
+                                {ratioYarnsWeight >= 0 ? `+${ratioYarnsWeight.toFixed(1)}%` : `${ratioYarnsWeight.toFixed(1)}%`}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* 2. Raw & Imported Materials Weight */}
+                    <div className="p-3.5 bg-gradient-to-br from-teal-50/60 to-slate-50 rounded-xl border border-teal-100/80 flex flex-col justify-between space-y-2">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
+                                <Boxes className="w-3.5 h-3.5 text-teal-600" />
+                                <span>مواد اولیه و واردات</span>
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isRawDownward ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                {isRawDownward ? '🔻 تراز منفی' : '📈 تراز مثبت'}
+                            </span>
+                        </div>
+                        <div>
+                            <div className="text-[11px] text-slate-500 font-medium flex justify-between">
+                                <span>پارسال: {(totalLastYearRawWeight / 1000).toFixed(2)} تن</span>
+                                <span>امسال: {(totalCurrentRawWeight / 1000).toFixed(2)} تن</span>
+                            </div>
+                            <div className="text-lg font-black text-slate-800 font-mono mt-0.5" dir="ltr">
+                                {diffRawWeight >= 0 ? `+${(diffRawWeight / 1000).toFixed(2)}` : (diffRawWeight / 1000).toFixed(2)} <span className="text-xs font-normal text-slate-500">تن</span>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-100">
+                            <span className="text-slate-500 font-medium text-[11px]">درصد تغییر:</span>
+                            <span className={`font-mono font-bold flex items-center gap-0.5 text-xs ${ratioRawWeight < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                {ratioRawWeight < 0 ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
+                                {ratioRawWeight >= 0 ? `+${ratioRawWeight.toFixed(1)}%` : `${ratioRawWeight.toFixed(1)}%`}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* 3. Total Enterprise Supply Chain Weight */}
+                    <div className="p-3.5 bg-gradient-to-br from-indigo-50/60 to-slate-50 rounded-xl border border-indigo-100/80 flex flex-col justify-between space-y-2">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                                <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                                <span>سرجمع کل وزن زنجیره</span>
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isAllWeightDownward ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                {isAllWeightDownward ? '🔻 تراز منفی' : '📈 تراز مثبت'}
+                            </span>
+                        </div>
+                        <div>
+                            <div className="text-[11px] text-slate-500 font-medium flex justify-between">
+                                <span>پارسال: {(totalLastYearAllWeight / 1000).toFixed(2)} تن</span>
+                                <span>امسال: {(totalCurrentAllWeight / 1000).toFixed(2)} تن</span>
+                            </div>
+                            <div className="text-lg font-black text-slate-800 font-mono mt-0.5" dir="ltr">
+                                {diffAllWeight >= 0 ? `+${(diffAllWeight / 1000).toFixed(2)}` : (diffAllWeight / 1000).toFixed(2)} <span className="text-xs font-normal text-slate-500">تن</span>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-100">
+                            <span className="text-slate-500 font-medium text-[11px]">تغییر کل:</span>
+                            <span className={`font-mono font-bold flex items-center gap-0.5 text-xs ${ratioAllWeight < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                {ratioAllWeight < 0 ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
+                                {ratioAllWeight >= 0 ? `+${ratioAllWeight.toFixed(1)}%` : `${ratioAllWeight.toFixed(1)}%`}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* 4. Containers & Dollars Import Metrics */}
+                    <div className="p-3.5 bg-gradient-to-br from-amber-50/60 to-slate-50 rounded-xl border border-amber-100/80 flex flex-col justify-between space-y-2">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                                <DollarSign className="w-3.5 h-3.5 text-amber-600" />
+                                <span>کانتینر و ارزش دلاری</span>
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${ratioContainers < 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                {ratioContainers < 0 ? '🔻 نزولی' : '📈 صعودی'}
+                            </span>
+                        </div>
+                        <div>
+                            <div className="text-[11px] text-slate-500 font-medium flex justify-between">
+                                <span>کانتینر: {diffContainers > 0 ? `+${diffContainers.toFixed(1)}` : diffContainers.toFixed(1)}</span>
+                                <span>ارزش: {diffDollars >= 0 ? `+$${(diffDollars / 1000).toFixed(0)}k` : `-$${(Math.abs(diffDollars) / 1000).toFixed(0)}k`}</span>
+                            </div>
+                            <div className="text-lg font-black text-slate-800 font-mono mt-0.5" dir="ltr">
+                                {ratioContainers >= 0 ? `+${ratioContainers.toFixed(1)}%` : `${ratioContainers.toFixed(1)}%`}
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-100">
+                            <span className="text-slate-500 font-medium text-[11px]">تغییر ارزی:</span>
+                            <span className={`font-mono font-bold text-xs ${ratioDollars < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                {ratioDollars >= 0 ? `+${ratioDollars.toFixed(1)}%` : `${ratioDollars.toFixed(1)}%`}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             {/* Sayan Items Filters */}
             <div className="bg-white p-2.5 sm:p-4 rounded-none sm:rounded-xl border-y sm:border border-slate-200 w-full max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-4">
                 <div className="text-xs font-bold text-slate-700 flex items-center gap-2">
@@ -2997,14 +3193,14 @@ export const WarehouseOverviewTab: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {commercialGoods.length === 0 ? (
+                            {visibleCommercialGoods.length === 0 ? (
                                 <tr>
                                     <td colSpan={isEditMode ? 7 : 6} className="py-6 text-center text-slate-400 font-medium">هیچ کالایی در انبار تجاری ثبت نشده است.</td>
                                 </tr>
                             ) : (
-                                commercialGoods.map((item) => (
+                                visibleCommercialGoods.map((item) => (
                                     <tr key={item.id} className="hover:bg-slate-50 text-slate-700">
-                                        <td className="py-2.5 px-3 text-right font-bold">
+                                        <td className="py-2.5 px-3 text-right font-bold flex items-center justify-between gap-1.5">
                                             {isEditMode ? (
                                                 <input 
                                                     type="text" 
@@ -3012,7 +3208,17 @@ export const WarehouseOverviewTab: React.FC = () => {
                                                     onChange={(e) => updateCommercialCell(item.id, 'itemName', e.target.value)}
                                                     className="w-full py-1 px-2 border rounded border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-semibold"
                                                 />
-                                            ) : item.itemName}
+                                            ) : (
+                                                <span>{item.itemName}</span>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleExcludeRegistration(item.itemName || item.id, item.itemName)}
+                                                className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 transition-all cursor-pointer shrink-0"
+                                                title="حذف/مخفی‌سازی این قلم از گزارش و تراز وزنی"
+                                            >
+                                                <EyeOff className="w-3.5 h-3.5" />
+                                            </button>
                                         </td>
                                         <td className="py-2.5 px-2">
                                             {isEditMode ? (
@@ -3078,14 +3284,14 @@ export const WarehouseOverviewTab: React.FC = () => {
                                 ))
                             )}
                         </tbody>
-                        {commercialGoods.length > 0 && (
+                        {visibleCommercialGoods.length > 0 && (
                             <tfoot>
                                 <tr className="bg-emerald-950 !text-white font-extrabold border-t-2 border-emerald-700" style={{ backgroundColor: '#064e3b' }}>
                                     <td className="py-3 px-3 text-right !text-white font-bold" style={{ color: '#ffffff', fontWeight: 900 }} colSpan={2}>جمع کل انبار تجاری</td>
-                                    <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(commercialGoods, 'cartons').toLocaleString('fa-IR')}</td>
-                                    <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(commercialGoods, 'weight').toLocaleString('fa-IR')}</td>
-                                    <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(commercialGoods, 'container').toLocaleString('fa-IR')}</td>
-                                    <td className="py-3 px-2 font-mono !text-emerald-300 font-bold" style={{ color: '#6ee7b7', fontWeight: 900 }}>${calculateCustomTableSum(commercialGoods, 'dollars').toLocaleString('en-US')}</td>
+                                    <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(visibleCommercialGoods, 'cartons').toLocaleString('fa-IR')}</td>
+                                    <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(visibleCommercialGoods, 'weight').toLocaleString('fa-IR')}</td>
+                                    <td className="py-3 px-2 font-mono !text-white" style={{ color: '#ffffff', fontWeight: 800 }}>{calculateCustomTableSum(visibleCommercialGoods, 'container').toLocaleString('fa-IR')}</td>
+                                    <td className="py-3 px-2 font-mono !text-emerald-300 font-bold" style={{ color: '#6ee7b7', fontWeight: 900 }}>${calculateCustomTableSum(visibleCommercialGoods, 'dollars').toLocaleString('en-US')}</td>
                                     {isEditMode && <td></td>}
                                 </tr>
                             </tfoot>

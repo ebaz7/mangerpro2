@@ -1707,7 +1707,7 @@ const parseJalaliStrToGregorian = (jalaliStr) => {
     }
 };
 
-const executeSayanQuery = async (db, queryStr) => {
+const executeSayanQuery = async (db, queryStr, timeoutMs = 20000) => {
     const settings = db.settings || {};
     let serverSayanBaseUrl = sanitizeSayanUrl(settings.sayanApiUrl || process.env.SAYAN_API_URL || 'http://80.210.31.176:5000/api/external/v1');
     const serverSayanApiKey = settings.sayanApiKey || process.env.SAYAN_API_KEY || 's_gate_live_vzje5nkn7q4u';
@@ -1715,21 +1715,33 @@ const executeSayanQuery = async (db, queryStr) => {
         throw new Error('تنظیمات آدرس API و کلید امنیتی سایان در بخش تنظیمات سیستم وارد نشده است.');
     }
     const finalUrl = `${serverSayanBaseUrl}/query`;
-    const response = await robustFetch(finalUrl, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${serverSayanApiKey}`,
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ query: queryStr })
-    });
-    if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || 'خطا در برقراری ارتباط با دیتابیس سایان ERP');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await robustFetch(finalUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${serverSayanApiKey}`,
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ query: queryStr }),
+            signal: controller.signal
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || err.message || `خطا در برقراری ارتباط با دیتابیس سایان ERP (کد ${response.status})`);
+        }
+        const data = await response.json();
+        return data.data || [];
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            throw new Error(`مهلت زمان اجرای کوئری در سرور سایان (${timeoutMs / 1000} ثانیه) به پایان رسید.`);
+        }
+        throw err;
+    } finally {
+        clearTimeout(timeoutId);
     }
-    const data = await response.json();
-    return data.data || [];
 };
 
 app.post('/api/sayan-proxy', async (req, res) => {
@@ -2482,8 +2494,15 @@ app.post('/api/warehouse-overview/excluded', (req, res) => {
     }
 });
 
+let warehouseLiveStatusCache = { data: null, timestamp: 0 };
+
 app.get('/api/warehouse-overview/live-status', async (req, res) => {
     try {
+        // Return memory cached data if queried within the last 5 minutes and not forced
+        if (req.query.force !== 'true' && warehouseLiveStatusCache.data && (Date.now() - warehouseLiveStatusCache.timestamp < 300000)) {
+            return res.json(warehouseLiveStatusCache.data);
+        }
+
         const db = getDb();
         const settings = db.settings || {};
         const sayanUrl = settings.sayanApiUrl || process.env.SAYAN_API_URL;
@@ -2571,8 +2590,8 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
                             WHEN RTRIM(LTRIM(t10.Field_009)) IN ('23', '25', '30', '37', '42', '84', '62', '68', '71', '74', '80') THEN -t11.Field_006 
                             ELSE 0 
                         END) as StockQty
-                    FROM STR_TBL_011 t11
-                    INNER JOIN STR_TBL_010 t10 ON t11.Field_004 = t10.Field_005 
+                    FROM STR_TBL_011 t11 WITH (NOLOCK)
+                    INNER JOIN STR_TBL_010 t10 WITH (NOLOCK) ON t11.Field_004 = t10.Field_005 
                                                AND t11.Field_003 = t10.Field_004 
                                                AND t11.Field_012 = t10.Field_018
                     WHERE t10.Field_008 <= '${targetDate}T23:59:59.000Z'
@@ -2581,14 +2600,34 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
                 )
                 SELECT ItemCode, StockQty FROM GroupedStock
             `;
-            const rows = await executeSayanQuery(db, sql);
+            const rows = await executeSayanQuery(db, sql, 15000);
             return rows || [];
         };
 
-        const [lastYearStock, currentStock] = await Promise.all([
-            getStockWeights(lastYearDateTo, lastYearDateFrom),
-            getStockWeights(currentYearDateTo, currentYearDateFrom)
-        ]);
+        let lastYearStock = [];
+        let currentStock = [];
+        try {
+            // Run sequentially to protect Sayan SQL connection pool
+            lastYearStock = await getStockWeights(lastYearDateTo, lastYearDateFrom);
+            currentStock = await getStockWeights(currentYearDateTo, currentYearDateFrom);
+        } catch (sayanErr) {
+            console.warn('[Warehouse Live Status] Sayan query timed out or failed, using saved snapshot:', sayanErr.message);
+            const fallbackResult = {
+                success: true,
+                isMock: false,
+                fromFallback: true,
+                message: 'استفاده از آخرین خلاصه تراز ذخیره‌شده (جهت حفظ سرعت و پایداری سرور سایان)',
+                meta: {
+                    totalCurrentAllWeight: meta.totalCurrentAllWeight !== undefined ? meta.totalCurrentAllWeight : 0,
+                    diffAllWeight: meta.diffAllWeight !== undefined ? meta.diffAllWeight : 0,
+                    ratioAllWeight: meta.ratioAllWeight !== undefined ? meta.ratioAllWeight : 0,
+                    totalPositiveWeight: meta.totalPositiveWeight !== undefined ? meta.totalPositiveWeight : 0,
+                    totalNegativeWeight: meta.totalNegativeWeight !== undefined ? meta.totalNegativeWeight : 0,
+                    reportDate: meta.reportDate || ''
+                }
+            };
+            return res.json(fallbackResult);
+        }
 
         const lastYearMap = {};
         lastYearStock.forEach(item => {
@@ -2965,11 +3004,14 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
         Object.assign(db.warehouseOverview.meta, liveMeta);
         saveDb(db);
 
-        res.json({
+        const liveStatusPayload = {
             success: true,
             isMock: false,
             meta: liveMeta
-        });
+        };
+        warehouseLiveStatusCache = { data: liveStatusPayload, timestamp: Date.now() };
+
+        res.json(liveStatusPayload);
     } catch (err) {
         console.error("Live Warehouse Status calculation error:", err);
         const db = getDb();

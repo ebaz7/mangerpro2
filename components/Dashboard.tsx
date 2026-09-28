@@ -786,7 +786,7 @@ const Dashboard: React.FC<DashboardProps> = ({ orders: rawOrders, settings, curr
   const fetchWarehouseAlert = async (isManual = false) => {
       if (isManual) setIsRefreshingWarehouse(true);
       try {
-          const res = await fetch('/api/warehouse-overview/live-status');
+          const res = await fetch('/api/warehouse-overview/live-status' + (isManual ? '?force=true' : ''));
           if (res.ok) {
               const data = await res.json();
               setWarehouseOverviewData(data);
@@ -800,7 +800,7 @@ const Dashboard: React.FC<DashboardProps> = ({ orders: rawOrders, settings, curr
               }
           }
       } catch (err) {
-          console.error("Failed to fetch warehouse overview alert", err);
+          console.warn("Failed to fetch warehouse overview alert (fallback to cached state):", err);
       } finally {
           if (isManual) setIsRefreshingWarehouse(false);
       }

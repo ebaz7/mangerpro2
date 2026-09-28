@@ -462,29 +462,12 @@ export async function fetchProcessedSayanSalesData(db, dateFromInput, dateToInpu
     const shamsiToDash = shamsiTo ? shamsiTo.replace(/\//g, '-') : '';
 
     let dateCond = '';
-    if (gregFrom === gregTo && gregFrom) {
-        dateCond = `
-            (
-                t10.Field_008 LIKE '${gregFrom}%'
-                OR t10.Field_008 LIKE '${gregFrom.replace(/-/g, '/')}%'
-                ${shamsiFrom ? `OR t10.Field_008 LIKE '${shamsiFrom}%'` : ''}
-                ${shamsiFromClean ? `OR t10.Field_008 LIKE '${shamsiFromClean}%'` : ''}
-                ${shamsiFromDash ? `OR t10.Field_008 LIKE '${shamsiFromDash}%'` : ''}
-                OR t10.Field_008 BETWEEN '${gregFrom}T00:00:00.000Z' AND '${gregFrom}T23:59:59.999Z'
-                OR t10.Field_008 BETWEEN '${gregFrom} 00:00:00' AND '${gregFrom} 23:59:59'
-            )
-        `;
+    if (gregFrom && gregTo) {
+        dateCond = `(t10.Field_008 >= '${gregFrom}T00:00:00.000Z' AND t10.Field_008 <= '${gregTo}T23:59:59.999Z')`;
+    } else if (gregFrom) {
+        dateCond = `(t10.Field_008 >= '${gregFrom}T00:00:00.000Z' AND t10.Field_008 <= '${gregFrom}T23:59:59.999Z')`;
     } else {
-        dateCond = `
-            (
-                t10.Field_008 BETWEEN '${gregFrom}T00:00:00.000Z' AND '${gregTo}T23:59:59.999Z'
-                OR t10.Field_008 BETWEEN '${gregFrom} 00:00:00' AND '${gregTo} 23:59:59'
-                OR t10.Field_008 BETWEEN '${gregFrom}' AND '${gregTo}'
-                OR t10.Field_008 BETWEEN '${shamsiFrom}' AND '${shamsiTo}'
-                OR t10.Field_008 BETWEEN '${shamsiFromClean}' AND '${shamsiToClean}'
-                OR t10.Field_008 BETWEEN '${shamsiFromDash}' AND '${shamsiToDash}'
-            )
-        `;
+        dateCond = `(t10.Field_008 >= CONVERT(date, GETDATE()))`;
     }
 
     const sql = `
@@ -502,8 +485,8 @@ export async function fetchProcessedSayanSalesData(db, dateFromInput, dateToInpu
             t_group.GroupName,
             t07.Field_006 as CustomerName,
             t10.Field_009 as OpCode
-        FROM STR_TBL_010 t10
-        INNER JOIN STR_TBL_011 t11 ON t11.Field_004 = t10.Field_005 
+        FROM STR_TBL_010 t10 WITH (NOLOCK)
+        INNER JOIN STR_TBL_011 t11 WITH (NOLOCK) ON t11.Field_004 = t10.Field_005 
                                    AND t11.Field_003 = t10.Field_004
                                    AND t11.Field_012 = t10.Field_018
                                    AND (
@@ -511,22 +494,22 @@ export async function fetchProcessedSayanSalesData(db, dateFromInput, dateToInpu
                                        OR
                                        (t10.Field_009 = '13' AND t11.Field_036 IN ('3', '12', '23', '13'))
                                    )
-        LEFT JOIN IND_TBL_022 t22 ON RTRIM(LTRIM(t22.Field_005)) = RTRIM(LTRIM(t11.Field_005))
+        LEFT JOIN IND_TBL_022 t22 WITH (NOLOCK) ON RTRIM(LTRIM(t22.Field_005)) = RTRIM(LTRIM(t11.Field_005))
         LEFT JOIN (
             SELECT RTRIM(LTRIM(t21_sub.Field_004)) as ItemCode, MIN(t02_sub.Field_003) as ItemName
-            FROM IND_TBL_021 t21_sub
-            LEFT JOIN IND_TBL_002 t02_sub ON RTRIM(LTRIM(t21_sub.Field_003)) = RTRIM(LTRIM(t02_sub.Field_008))
+            FROM IND_TBL_021 t21_sub WITH (NOLOCK)
+            LEFT JOIN IND_TBL_002 t02_sub WITH (NOLOCK) ON RTRIM(LTRIM(t21_sub.Field_003)) = RTRIM(LTRIM(t02_sub.Field_008))
             GROUP BY t21_sub.Field_004
         ) t_name ON RTRIM(LTRIM(t11.Field_005)) = RTRIM(LTRIM(t_name.ItemCode))
         LEFT JOIN (
             SELECT t21_sub.Field_004 as ItemCode, MIN(COALESCE(t02_grandparent.Field_003, t02_parent.Field_003, t02_sub.Field_003)) as GroupName
-            FROM IND_TBL_021 t21_sub
-            LEFT JOIN IND_TBL_002 t02_sub ON RTRIM(LTRIM(t21_sub.Field_003)) = RTRIM(LTRIM(t02_sub.Field_008))
-            LEFT JOIN IND_TBL_002 t02_parent ON RTRIM(LTRIM(t02_sub.Field_009)) = RTRIM(LTRIM(t02_parent.Field_008))
-            LEFT JOIN IND_TBL_002 t02_grandparent ON RTRIM(LTRIM(t02_parent.Field_009)) = RTRIM(LTRIM(t02_grandparent.Field_008))
+            FROM IND_TBL_021 t21_sub WITH (NOLOCK)
+            LEFT JOIN IND_TBL_002 t02_sub WITH (NOLOCK) ON RTRIM(LTRIM(t21_sub.Field_003)) = RTRIM(LTRIM(t02_sub.Field_008))
+            LEFT JOIN IND_TBL_002 t02_parent WITH (NOLOCK) ON RTRIM(LTRIM(t02_sub.Field_009)) = RTRIM(LTRIM(t02_parent.Field_008))
+            LEFT JOIN IND_TBL_002 t02_grandparent WITH (NOLOCK) ON RTRIM(LTRIM(t02_parent.Field_009)) = RTRIM(LTRIM(t02_grandparent.Field_008))
             GROUP BY t21_sub.Field_004
         ) t_group ON RTRIM(LTRIM(t11.Field_005)) = RTRIM(LTRIM(t_group.ItemCode))
-        LEFT JOIN ACT_TBL_007 t07 ON RTRIM(LTRIM(t10.Field_010)) = RTRIM(LTRIM(t07.Field_005)) AND (t07.Field_004 = '11' OR t07.Field_004 = '31')
+        LEFT JOIN ACT_TBL_007 t07 WITH (NOLOCK) ON RTRIM(LTRIM(t10.Field_010)) = RTRIM(LTRIM(t07.Field_005)) AND (t07.Field_004 = '11' OR t07.Field_004 = '31')
         WHERE (
             (t10.Field_009 IN ('3', '12', '23') AND t11.Field_007 > 0)
             OR

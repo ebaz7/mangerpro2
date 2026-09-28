@@ -1,7 +1,18 @@
 
 // --- SYSTEM RESTARTED TO RESOLVE DEPLOYMENT ERROR ---
 import 'dotenv/config'; 
-import { setGlobalDispatcher, ProxyAgent, EnvHttpProxyAgent } from 'undici';
+import { setGlobalDispatcher, ProxyAgent, EnvHttpProxyAgent, Agent } from 'undici';
+
+// Direct dispatcher for local LAN & internal services (bypasses any proxy)
+export const directAgent = new Agent({
+    connect: { timeout: 30000 },
+    pipelining: 0
+});
+
+// Configure NO_PROXY for private subnets so local services are never proxied
+const defaultNoProxy = '192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,127.0.0.1,localhost,80.210.31.176';
+process.env.NO_PROXY = process.env.NO_PROXY ? `${process.env.NO_PROXY},${defaultNoProxy}` : defaultNoProxy;
+process.env.no_proxy = process.env.NO_PROXY;
 
 // Initialize global fetch proxy dispatcher using system / custom proxy settings
 const proxyUrl = process.env.PROXY_URL || process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy;
@@ -1696,7 +1707,8 @@ const executeSayanQuery = async (db, queryStr) => {
             'Accept': 'application/json',
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ query: queryStr })
+        body: JSON.stringify({ query: queryStr }),
+        dispatcher: directAgent
     });
     if (!response.ok) {
         const err = await response.json().catch(() => ({}));
@@ -1737,7 +1749,8 @@ app.post('/api/sayan-proxy', async (req, res) => {
 
         const fetchOptions = {
             method: targetMethod || 'GET',
-            headers
+            headers,
+            dispatcher: directAgent
         };
 
         if (targetBody && (targetMethod === 'POST' || targetMethod === 'PUT')) {
@@ -1745,17 +1758,6 @@ app.post('/api/sayan-proxy', async (req, res) => {
         }
 
         const response = await fetch(finalUrl, fetchOptions);
-        const contentType = response.headers.get('content-type') || '';
-        const isJson = contentType.includes('application/json');
-
-        if (!isJson) {
-            const rawText = await response.text().catch(() => '');
-            console.error(`Sayan Proxy Non-JSON response (${response.status}):`, rawText.slice(0, 200));
-            return res.status(response.status || 502).json({
-                error: `پاسخ وب‌سرویس سایان در قالب JSON نیست (کد وضعیت ${response.status}).`
-            });
-        }
-
         const data = await response.json().catch(() => null);
 
         if (!response.ok) {
@@ -1801,7 +1803,8 @@ app.post('/api/sayan/test-connection', async (req, res) => {
             method: 'POST',
             headers,
             body: JSON.stringify({ query: 'SELECT 1 AS ping' }),
-            signal: controller.signal
+            signal: controller.signal,
+            dispatcher: directAgent
         }).finally(() => clearTimeout(timeoutId));
 
         const latency = Date.now() - startTime;

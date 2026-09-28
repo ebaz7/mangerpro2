@@ -7773,11 +7773,11 @@ const Settings: React.FC<SettingsProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => setSettings({ ...settings, sayanApiUrl: "http://192.168.41.225:3000/api/external/v1" })}
+                            onClick={() => setSettings({ ...settings, sayanApiUrl: "http://192.168.41.225:5000/api/external/v1" })}
                             className="text-[10px] font-mono px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-gray-600 dark:text-gray-300 transition-colors border border-gray-200 dark:border-gray-700 cursor-pointer"
                             title="سرور لوکال شبکه داخلی"
                           >
-                            192.168.41.225:3000 (محلی)
+                            192.168.41.225:5000 (محلی)
                           </button>
                         </div>
                       </div>

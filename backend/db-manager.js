@@ -2,11 +2,55 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import http from 'http';
+import https from 'https';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DB_FILE = path.join(__dirname, '..', 'database.json');
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
+
+/**
+ * Direct unproxied HTTP/HTTPS fetch for internal services, local network (192.168.*, 127.0.0.1)
+ * and Sayan ERP. Guarantees that local traffic is never routed through any system proxy,
+ * VPN, or environment variables set by other bots.
+ */
+export const robustFetch = async (url, options = {}) => {
+    return new Promise((resolve, reject) => {
+        try {
+            const parsed = new URL(url);
+            const lib = parsed.protocol === 'https:' ? https : http;
+            const req = lib.request(parsed, {
+                method: options.method || 'GET',
+                headers: options.headers || {},
+                timeout: options.timeout || 25000,
+                signal: options.signal
+            }, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                    resolve({
+                        ok: res.statusCode >= 200 && res.statusCode < 300,
+                        status: res.statusCode,
+                        json: async () => JSON.parse(data),
+                        text: async () => data
+                    });
+                });
+            });
+            req.on('timeout', () => {
+                req.destroy();
+                reject(new Error('مهلت زمان برقراری ارتباط (Timeout) به پایان رسید.'));
+            });
+            req.on('error', (e) => reject(e));
+            if (options.body) {
+                req.write(options.body);
+            }
+            req.end();
+        } catch (innerErr) {
+            reject(innerErr);
+        }
+    });
+};
 
 /**
  * Sanitizes any Sayan Base URL to guarantee it includes the proper protocol and the essential '/api/external/v1' path.

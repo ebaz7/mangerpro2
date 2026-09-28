@@ -12,6 +12,7 @@ import { mergeFilesToPdf } from './pdf-merger.js';
 
 const getDb = dbManager.getDb;
 const saveDb = dbManager.saveDb;
+const robustFetch = dbManager.robustFetch;
 const toShamsiYearMonth = utils.toShamsiYearMonth;
 const toShamsiFull = utils.toShamsiFull;
 const findNextGapNumber = utils.findNextGapNumber;
@@ -109,7 +110,7 @@ const runSayanQuery = async (db, queryStr) => {
     }
     
     const finalUrl = `${serverSayanBaseUrl.replace(/\/$/, '')}/query`;
-    const response = await fetch(finalUrl, {
+    const response = await robustFetch(finalUrl, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${serverSayanApiKey}`,

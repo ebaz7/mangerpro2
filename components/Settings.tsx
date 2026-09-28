@@ -7758,10 +7758,18 @@ const Settings: React.FC<SettingsProps> = ({
                           <button
                             type="button"
                             onClick={() => setSettings({ ...settings, sayanApiUrl: "http://80.210.31.176:5000/api/external/v1" })}
-                            className="text-[10px] font-mono px-2 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-indigo-700 dark:text-indigo-300 transition-colors border border-indigo-100 dark:border-gray-700 cursor-pointer"
-                            title="سرور اصلی سایان"
+                            className="text-[10px] font-mono px-2 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-indigo-700 dark:text-indigo-300 transition-colors border border-indigo-100 dark:border-gray-700 cursor-pointer font-bold"
+                            title="سرور اصلی سایان (IP استاتیک اینترنت)"
                           >
                             80.210.31.176:5000 (اصلی)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSettings({ ...settings, sayanApiUrl: "http://lep.templatetesti.shop:5000/api/external/v1" })}
+                            className="text-[10px] font-mono px-2 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-emerald-700 dark:text-emerald-300 transition-colors border border-emerald-100 dark:border-gray-700 cursor-pointer font-bold"
+                            title="دامنه اینترنتی پایدار سرور شرکت"
+                          >
+                            lep.templatetesti.shop (دامنه)
                           </button>
                           <button
                             type="button"
@@ -7774,8 +7782,8 @@ const Settings: React.FC<SettingsProps> = ({
                           <button
                             type="button"
                             onClick={() => setSettings({ ...settings, sayanApiUrl: "http://192.168.41.225:5000/api/external/v1" })}
-                            className="text-[10px] font-mono px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-gray-600 dark:text-gray-300 transition-colors border border-gray-200 dark:border-gray-700 cursor-pointer"
-                            title="سرور لوکال شبکه داخلی"
+                            className="text-[10px] font-mono px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-gray-600 dark:text-gray-300 transition-colors border border-gray-200 dark:border-gray-700 cursor-pointer font-bold"
+                            title="آدرس سرور لوکال"
                           >
                             192.168.41.225:5000 (محلی)
                           </button>
@@ -7784,7 +7792,7 @@ const Settings: React.FC<SettingsProps> = ({
                       <div className="relative">
                         <input
                           type="text"
-                          placeholder="http://80.210.31.176:5000/api/external/v1"
+                          placeholder="http://192.168.41.225:5000/api/external/v1"
                           className="w-full border border-gray-200 dark:border-gray-700 dark:bg-gray-900 rounded-xl p-3 text-sm font-mono dir-ltr focus:ring-4 ring-indigo-50/50 outline-none transition-all pr-10 text-gray-800 dark:text-gray-100"
                           value={settings.sayanApiUrl || ""}
                           onChange={(e) => setSettings({ ...settings, sayanApiUrl: e.target.value })}
@@ -7794,7 +7802,7 @@ const Settings: React.FC<SettingsProps> = ({
                         </div>
                       </div>
                       <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                        آدرس کامل وب‌سرویس سایان شامل پروتکل، IP سرور، پورت و مسیر (مثال: <code className="dir-ltr inline-block font-mono bg-indigo-50 dark:bg-gray-800 px-1.5 py-0.5 rounded text-indigo-700 dark:text-indigo-300 font-bold">http://80.210.31.176:5000/api/external/v1</code> یا <code className="dir-ltr inline-block font-mono bg-indigo-50 dark:bg-gray-800 px-1.5 py-0.5 rounded text-indigo-700 dark:text-indigo-300 font-bold">http://80.210.31.176:5000/api/v1</code>)
+                        آدرس کامل وب‌سرویس سایان شامل پروتکل، IP سرور، پورت و مسیر (مثال: <code className="dir-ltr inline-block font-mono bg-indigo-50 dark:bg-gray-800 px-1.5 py-0.5 rounded text-indigo-700 dark:text-indigo-300 font-bold">http://192.168.41.225:5000/api/external/v1</code> یا <code className="dir-ltr inline-block font-mono bg-emerald-50 dark:bg-gray-800 px-1.5 py-0.5 rounded text-emerald-700 dark:text-emerald-300 font-bold">http://127.0.0.1:5000/api/external/v1</code>)
                       </p>
                     </div>
 

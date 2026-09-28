@@ -3,16 +3,13 @@
 import 'dotenv/config'; 
 import { setGlobalDispatcher, ProxyAgent, EnvHttpProxyAgent, Agent } from 'undici';
 
-// Direct dispatcher for local LAN & internal services (bypasses any proxy)
-export const directAgent = new Agent({
-    connect: { timeout: 30000 },
-    pipelining: 0
-});
+import http from 'http';
+import https from 'https';
 
 /**
- * Resilient fetch function that first attempts connection using the default global dispatcher
- * (respecting system proxy/VPN configurations) and automatically falls back to directAgent
- * (bypassing proxies) if the initial connection fails.
+ * Resilient fetch function that first attempts connection using standard fetch
+ * and automatically falls back to native direct http/https channel (completely bypassing
+ * any dead proxies, proxy environment variables, or dispatcher conflicts) if the initial connection fails.
  */
 export const robustFetch = async (url, options = {}) => {
     try {
@@ -20,14 +17,46 @@ export const robustFetch = async (url, options = {}) => {
         delete opt.dispatcher; // Ensure default dispatcher is used first
         return await fetch(url, opt);
     } catch (err) {
-        console.warn(`[Robust Fetch] Default fetch failed for ${url}: ${err.message}. Retrying with directAgent...`);
-        const optDirect = { ...options, dispatcher: directAgent };
-        return await fetch(url, optDirect);
+        console.warn(`[Robust Fetch] Standard fetch failed for ${url}: ${err.message}. Retrying via direct http/https channel...`);
+        return new Promise((resolve, reject) => {
+            try {
+                const parsed = new URL(url);
+                const lib = parsed.protocol === 'https:' ? https : http;
+                const req = lib.request(parsed, {
+                    method: options.method || 'GET',
+                    headers: options.headers || {},
+                    timeout: options.timeout || 25000,
+                    signal: options.signal
+                }, (res) => {
+                    let data = '';
+                    res.on('data', chunk => data += chunk);
+                    res.on('end', () => {
+                        resolve({
+                            ok: res.statusCode >= 200 && res.statusCode < 300,
+                            status: res.statusCode,
+                            json: async () => JSON.parse(data),
+                            text: async () => data
+                        });
+                    });
+                });
+                req.on('timeout', () => {
+                    req.destroy();
+                    reject(new Error('Connection timed out'));
+                });
+                req.on('error', (e) => reject(e));
+                if (options.body) {
+                    req.write(options.body);
+                }
+                req.end();
+            } catch (innerErr) {
+                reject(innerErr);
+            }
+        });
     }
 };
 
-// Configure NO_PROXY for private subnets so local services are never proxied
-const defaultNoProxy = '192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,127.0.0.1,localhost,80.210.31.176';
+// Configure NO_PROXY for private subnets and local services so they are NEVER routed through any proxy
+const defaultNoProxy = '192.168.0.0/16,192.168.41.225,10.0.0.0/8,172.16.0.0/12,127.0.0.1,localhost,::1,80.210.31.176,templatetesti.shop,dlkam.ir';
 process.env.NO_PROXY = process.env.NO_PROXY ? `${process.env.NO_PROXY},${defaultNoProxy}` : defaultNoProxy;
 process.env.no_proxy = process.env.NO_PROXY;
 
@@ -48,7 +77,6 @@ if (proxyUrl) {
     }
 }
 
-import http from 'http';
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
@@ -1714,34 +1742,51 @@ const executeSayanQuery = async (db, queryStr, timeoutMs = 20000) => {
     if (!serverSayanBaseUrl || !serverSayanApiKey) {
         throw new Error('تنظیمات آدرس API و کلید امنیتی سایان در بخش تنظیمات سیستم وارد نشده است.');
     }
-    const finalUrl = `${serverSayanBaseUrl}/query`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-        const response = await robustFetch(finalUrl, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${serverSayanApiKey}`,
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ query: queryStr }),
-            signal: controller.signal
-        });
-        if (!response.ok) {
-            const err = await response.json().catch(() => ({}));
-            throw new Error(err.error || err.message || `خطا در برقراری ارتباط با دیتابیس سایان ERP (کد ${response.status})`);
-        }
-        const data = await response.json();
-        return data.data || [];
-    } catch (err) {
-        if (err.name === 'AbortError') {
-            throw new Error(`مهلت زمان اجرای کوئری در سرور سایان (${timeoutMs / 1000} ثانیه) به پایان رسید.`);
-        }
-        throw err;
-    } finally {
-        clearTimeout(timeoutId);
+
+    // List of candidate endpoints to try: configured URL first, followed by known public endpoints if configured is a private IP or fails
+    const candidates = [serverSayanBaseUrl];
+    const isPrivateIp = /(?:192\.168\.|10\.\d{1,3}\.|172\.(?:1[6-9]|2\d|3[01])\.|127\.0\.0\.1|localhost)/.test(serverSayanBaseUrl);
+    if (isPrivateIp) {
+        candidates.push('http://80.210.31.176:5000/api/external/v1');
+        candidates.push('http://lep.templatetesti.shop:5000/api/external/v1');
     }
+
+    let lastError = null;
+    for (const baseUrl of candidates) {
+        const finalUrl = `${baseUrl}/query`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const response = await robustFetch(finalUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${serverSayanApiKey}`,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ query: queryStr }),
+                signal: controller.signal
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.error || err.message || `خطا در برقراری ارتباط با دیتابیس سایان ERP (کد ${response.status})`);
+            }
+            const data = await response.json();
+            return data.data || [];
+        } catch (err) {
+            lastError = err;
+            if (candidates.length > 1) {
+                console.warn(`[executeSayanQuery] Attempt on ${baseUrl} failed: ${err.message}. Trying next candidate...`);
+            }
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    }
+
+    if (lastError?.name === 'AbortError') {
+        throw new Error(`مهلت زمان اجرای کوئری در سرور سایان (${timeoutMs / 1000} ثانیه) به پایان رسید.`);
+    }
+    throw lastError || new Error('خطا در برقراری ارتباط با دیتابیس سایان');
 };
 
 app.post('/api/sayan-proxy', async (req, res) => {
@@ -1845,9 +1890,10 @@ app.post('/api/sayan/test-connection', async (req, res) => {
             data: data.data || []
         });
     } catch (e) {
+        let errorMsg = e.name === 'AbortError' ? 'مهلت زمان برقراری ارتباط (Timeout) با وب‌سرویس سایان به پایان رسید.' : (e.message || 'خطا در ارتباط با وب‌سرویس سایان');
         return res.json({
             success: false,
-            error: e.name === 'AbortError' ? 'مهلت زمان برقراری ارتباط (Timeout) با سرور سایان به پایان رسید.' : (e.message || 'خطا در ارتباط با سرور سایان')
+            error: errorMsg
         });
     }
 });

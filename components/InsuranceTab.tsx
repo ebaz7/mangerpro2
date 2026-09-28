@@ -1,10 +1,9 @@
 
 import React from 'react';
-import { TradeRecord, InsuranceEndorsement, TradeAttachment, User } from '../types';
+import { TradeRecord, InsuranceEndorsement } from '../types';
 import { Save, Plus, Trash2, Edit, X } from 'lucide-react';
 import { formatNumberString, deformatNumberString, formatCurrency } from '../constants';
 import FormattedNumberInput from './FormattedNumberInput';
-import { TradeAttachmentSection } from './trade/TradeAttachmentSection';
 
 interface InsuranceTabProps {
     form: NonNullable<TradeRecord['insuranceData']>;
@@ -22,16 +21,12 @@ interface InsuranceTabProps {
     editingEndorsementId?: string | null;
     onEditEndorsement?: (end: InsuranceEndorsement) => void;
     onCancelEditEndorsement?: () => void;
-    attachments?: TradeAttachment[];
-    onAttachmentsChange?: (updated: TradeAttachment[]) => void;
-    currentUser?: User;
 }
 
 const InsuranceTab: React.FC<InsuranceTabProps> = ({ 
     form, setForm, companies, banks, onSave,
     newEndorsement, setNewEndorsement, endorsementType, setEndorsementType, onAddEndorsement, onDeleteEndorsement,
-    editingEndorsementId, onEditEndorsement, onCancelEditEndorsement,
-    attachments = [], onAttachmentsChange, currentUser
+    editingEndorsementId, onEditEndorsement, onCancelEditEndorsement
 }) => {
     return (
         <div className="p-6 max-w-4xl mx-auto space-y-6">
@@ -173,20 +168,6 @@ const InsuranceTab: React.FC<InsuranceTabProps> = ({
                     ))}
                 </div>
             </div>
-
-            {/* Insurance Attachments Section */}
-            {onAttachmentsChange && (
-                <div className="glass-panel p-6 rounded-xl shadow-sm border space-y-4 bg-white dark:bg-gray-800">
-                    <TradeAttachmentSection
-                        attachments={attachments}
-                        onAttachmentsChange={onAttachmentsChange}
-                        category="commercial/insurance"
-                        title="پیوست‌ها و مستندات بیمه‌نامه و الحاقیه‌ها (تصویر و PDF)"
-                        description="تصویر اصل بیمه‌نامه، برگه‌های الحاقیه، فیش‌های واریزی و مکاتبات شرکت بیمه"
-                        currentUser={currentUser}
-                    />
-                </div>
-            )}
         </div>
     );
 };

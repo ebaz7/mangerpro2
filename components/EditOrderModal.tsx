@@ -5,7 +5,6 @@ import { editOrder, uploadFile, getSettings, saveSettings } from '../services/st
 import { enhanceDescription } from '../services/geminiService';
 import { jalaliToGregorian, getShamsiDateFromIso, formatCurrency, generateUUID, normalizeInputNumber, formatNumberString, deformatNumberString, getCurrentShamsiDate } from '../constants';
 import { Wand2, Save, Loader2, X, Calendar, Plus, Trash2, Paperclip, Hash, AlertTriangle, Landmark, ArrowRightLeft, MapPin, Edit } from 'lucide-react';
-import { getDisplayFileName } from '../utils/fileNameUtils';
 import PrintVoucher from './PrintVoucher';
 import { getUsers } from '../services/authService';
 import { apiCall } from '../services/apiService';
@@ -510,36 +509,7 @@ const EditOrderModal: React.FC<EditOrderModalProps> = ({ order, onClose, onSave 
                             {uploading ? <Loader2 size={18} className="animate-spin"/> : <Plus size={18}/>} {uploading ? 'در حال آپلود...' : 'افزودن فایل'}
                         </label>
                     </div>
-                    {attachments.length > 0 && (
-                      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                        {attachments.map((file, idx) => {
-                          const displayFileName = getDisplayFileName(file.fileName, file.data);
-                          return (
-                            <div key={idx} className="flex items-center justify-between glass-panel p-3 rounded-xl border border-gray-200 text-sm shadow-xs group bg-white gap-2">
-                              <a 
-                                href={file.data} 
-                                target="_blank" 
-                                rel="noreferrer"
-                                className="text-blue-600 hover:text-blue-800 break-words line-clamp-2 hover:underline flex items-center gap-2 font-medium min-w-0 flex-1"
-                                dir="auto"
-                                title={displayFileName}
-                              >
-                                <Paperclip size={16} className="shrink-0 text-blue-500" />
-                                <span className="truncate">{displayFileName}</span>
-                              </a>
-                              <button 
-                                type="button" 
-                                onClick={() => removeAttachment(idx)} 
-                                className="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors shrink-0"
-                                title="حذف پیوست"
-                              >
-                                <X size={16} />
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                    {attachments.length > 0 && <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">{attachments.map((file, idx) => (<div key={idx} className="flex items-center justify-between glass-panel p-3 rounded-xl border border-gray-200 text-sm shadow-sm group"><a href={file.data} target="_blank" className="text-blue-600 truncate hover:underline flex items-center gap-2"><Paperclip size={14}/> {file.fileName}</a><button type="button" onClick={() => removeAttachment(idx)} className="text-gray-400 hover:text-red-500 p-1"><X size={16} /></button></div>))}</div>}
                 </div>
                 
                 <div className="flex gap-3 justify-end pt-4 border-t">

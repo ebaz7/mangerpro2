@@ -15,7 +15,6 @@ import {
     X
 } from 'lucide-react';
 import { FileViewerModal } from '../FileViewerModal';
-import { getDisplayFileName } from '../../utils/fileNameUtils';
 
 export interface ReceiptAttachment {
     id?: string;
@@ -608,7 +607,6 @@ export const MobileAttachmentUploader: React.FC<MobileAttachmentUploaderProps> =
                     {attachments.map((att, idx) => {
                         const isImg = att.fileType?.startsWith('image/') || att.fileData?.startsWith('data:image') || att.fileName?.match(/\.(jpg|jpeg|png|webp|bmp)$/i);
                         const src = att.url || att.fileData || (att.fileName ? `/uploads/${att.fileName}` : '');
-                        const displayFileName = getDisplayFileName(att.fileName, src);
 
                         return (
                             <div
@@ -616,15 +614,14 @@ export const MobileAttachmentUploader: React.FC<MobileAttachmentUploaderProps> =
                                 className="group bg-white dark:bg-slate-800/95 rounded-2xl border border-slate-200 dark:border-slate-700 p-2.5 flex items-center justify-between gap-3 shadow-xs hover:shadow-md transition-all"
                             >
                                 <div 
-                                    onClick={() => setPreviewAttachment({ ...att, fileName: displayFileName })}
-                                    className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer overflow-hidden"
-                                    title={displayFileName}
+                                    onClick={() => setPreviewAttachment(att)}
+                                    className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
                                 >
                                     <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden shrink-0 relative">
                                         {isImg && src ? (
                                             <img
                                                 src={src}
-                                                alt={displayFileName}
+                                                alt={att.fileName}
                                                 referrerPolicy="no-referrer"
                                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                                             />
@@ -633,13 +630,12 @@ export const MobileAttachmentUploader: React.FC<MobileAttachmentUploaderProps> =
                                         )}
                                     </div>
 
-                                    <div className="min-w-0 flex-1 overflow-hidden">
+                                    <div className="min-w-0 flex-1">
                                         <div 
-                                            className="text-xs font-bold text-slate-800 dark:text-slate-200 break-words line-clamp-2 leading-relaxed group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors"
-                                            dir="auto"
-                                            title={displayFileName}
+                                            className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors"
+                                            title={att.fileName}
                                         >
-                                            {displayFileName}
+                                            {att.fileName}
                                         </div>
                                         <div className="text-[10px] text-slate-400 mt-0.5 flex flex-wrap items-center gap-1.5 font-mono">
                                             <span>{isImg ? 'تصویر' : 'سند PDF'}</span>

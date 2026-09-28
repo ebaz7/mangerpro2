@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { TradeRecord, TradeStage } from '../types';
 import { TradeDatePicker } from './TradeDatePicker';
 import FormattedNumberInput from './FormattedNumberInput';
-import { TradeAttachmentSection } from './trade/TradeAttachmentSection';
 import { formatCurrency, formatNumberString, calculateDaysDiff, calculateDaysBetween, parsePersianDate, addDaysToPersianDate } from '../constants';
 import { 
     Clock, 
@@ -626,13 +625,75 @@ export const AllocationTab: React.FC<AllocationTabProps> = ({
 
             {/* SECTION 4: فایل‌های ضمیمه */}
             <div className="glass-panel p-4 sm:p-5 rounded-2xl shadow-xs border border-gray-200 dark:border-zinc-800 space-y-3">
-                <TradeAttachmentSection
-                    attachments={form.attachments as any}
-                    onAttachmentsChange={(updated: any) => setForm(prev => ({ ...prev, attachments: updated }))}
-                    category="commercial/allocation"
-                    title="پیوست‌ها و اسناد تخصیص و ثبت آماری (تصویر و PDF)"
-                    description="فیش ثبت آماری، مجوز تخصیص بانک مرکزی، نامه‌های تمدید و فیش‌های کارمزد"
-                />
+                <div className="flex justify-between items-center">
+                    <h3 className="font-bold text-sm sm:text-base text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                        <Paperclip size={18} className="text-purple-600" />
+                        فایل‌های ضمیمه و اسناد تخصیص
+                    </h3>
+                    <div className="flex items-center gap-2">
+                        <input 
+                            type="file" 
+                            ref={fileInputRef} 
+                            className="hidden" 
+                            onChange={handleFileUpload} 
+                        />
+                        <button 
+                            type="button" 
+                            onClick={() => fileInputRef.current?.click()} 
+                            disabled={uploading} 
+                            className="bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 px-3 py-1.5 rounded-xl text-xs font-bold hover:bg-purple-100 dark:hover:bg-purple-900/60 transition-all shadow-2xs flex items-center gap-1"
+                        >
+                            <Paperclip size={13} />
+                            {uploading ? 'در حال آپلود...' : 'افزودن سند جدید'}
+                        </button>
+                    </div>
+                </div>
+
+                {form.attachments.length === 0 ? (
+                    <div className="text-center py-6 border-2 border-dashed border-gray-200 dark:border-zinc-800 rounded-xl text-gray-400 text-xs">
+                        هنوز فایلی ضمیمه نشده است. (فیش ثبت آماری، مجوز تخصیص، نامه بانک و ...)
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {form.attachments.map((att, idx) => (
+                            <div 
+                                key={idx} 
+                                className="flex justify-between items-center bg-gray-50 dark:bg-zinc-800/80 p-2.5 rounded-xl border border-gray-100 dark:border-zinc-700/60 text-xs"
+                            >
+                                <button 
+                                    type="button" 
+                                    onClick={() => onOpenAttachment?.(att.url, att.fileName)} 
+                                    className="text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[180px] sm:max-w-[220px] flex items-center gap-1.5 font-medium"
+                                    title={att.fileName}
+                                >
+                                    <Eye size={14} className="shrink-0" />
+                                    <span className="truncate">{att.fileName}</span>
+                                </button>
+
+                                <div className="flex items-center gap-1">
+                                    {onSendToChat && (
+                                        <button 
+                                            type="button" 
+                                            onClick={() => onSendToChat(att, `پیوست تخصیص ارز پرونده ${record.goodsName} (${record.fileNumber})`)} 
+                                            className="text-blue-500 hover:text-blue-700 dark:text-blue-400 p-1 rounded hover:bg-blue-50 dark:hover:bg-zinc-700" 
+                                            title="ارسال به گفتگو"
+                                        >
+                                            <Share2 size={14} />
+                                        </button>
+                                    )}
+                                    <button 
+                                        type="button" 
+                                        onClick={() => handleRemoveAttachment(idx)} 
+                                        className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 dark:hover:bg-zinc-700" 
+                                        title="حذف فایل"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {/* Bottom Save bar */}

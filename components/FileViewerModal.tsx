@@ -22,7 +22,6 @@ import { resolveImageUrl } from '../services/apiService';
 import { downloadAndOpenFile } from '../services/fileService';
 import { openSendToChat } from '../services/chatShareService';
 import { getCachedAsset } from '../utils/assetCache';
-import { getDisplayFileName } from '../utils/fileNameUtils';
 
 export interface FileViewerProps {
   isOpen: boolean;
@@ -206,14 +205,9 @@ export const FileViewerModal: React.FC<FileViewerProps> = ({
             {detectedType === 'other' && <FileText size={20} className="text-amber-400" />}
           </div>
           <div className="min-w-0">
-            {(() => {
-              const displayFileName = getDisplayFileName(fileName, fileUrl);
-              return (
-                <h3 className="text-sm font-bold text-slate-100 truncate" title={displayFileName} dir="auto">
-                  {displayFileName}
-                </h3>
-              );
-            })()}
+            <h3 className="text-sm font-bold text-slate-100 truncate" title={fileName} dir="ltr">
+              {fileName}
+            </h3>
             <span className="text-[11px] text-slate-400 font-medium">
               {detectedType === 'image' && 'پیش‌نمایش تصویر'}
               {detectedType === 'pdf' && 'سند PDF'}

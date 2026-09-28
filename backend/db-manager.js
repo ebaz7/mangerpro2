@@ -8,34 +8,6 @@ const __dirname = path.dirname(__filename);
 const DB_FILE = path.join(__dirname, '..', 'database.json');
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 
-/**
- * Sanitizes any Sayan Base URL to guarantee it includes the proper protocol and the essential '/api/external/v1' path.
- */
-export const sanitizeSayanUrl = (url) => {
-    if (!url || typeof url !== 'string') return '';
-    let clean = url.trim();
-    
-    // Add http:// prefix if missing (unless it already has http:// or https://)
-    if (!/^https?:\/\//i.test(clean)) {
-        clean = 'http://' + clean;
-    }
-    
-    // Remove trailing slashes
-    clean = clean.replace(/\/+$/, '');
-    
-    // If it ends with /api/v1, replace it with /api/external/v1
-    if (clean.endsWith('/api/v1')) {
-        clean = clean.replace(/\/api\/v1$/, '/api/external/v1');
-    }
-    
-    // If it doesn't contain /api/external/v1 and doesn't contain /api/v1
-    if (!clean.includes('/api/external/v1') && !clean.includes('/api/v1')) {
-        clean = clean + '/api/external/v1';
-    }
-    
-    return clean;
-};
-
 if (!fs.existsSync(UPLOADS_DIR)) {
     try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch (e) {}
 }
@@ -354,7 +326,6 @@ export const getDb = () => {
                 if (!MEMORY_DB_CACHE.settings.sayanApiUrl) {
                     MEMORY_DB_CACHE.settings.sayanApiUrl = process.env.SAYAN_API_URL || "http://80.210.31.176:5000/api/external/v1";
                 }
-                MEMORY_DB_CACHE.settings.sayanApiUrl = sanitizeSayanUrl(MEMORY_DB_CACHE.settings.sayanApiUrl);
                 if (!MEMORY_DB_CACHE.settings.sayanApiKey) {
                     MEMORY_DB_CACHE.settings.sayanApiKey = process.env.SAYAN_API_KEY || "s_gate_live_vzje5nkn7q4u";
                 }
@@ -563,11 +534,6 @@ export const saveDb = (data) => {
     }
     if (!MEMORY_DB_CACHE) return true;
     
-    // Sanitize Sayan API URL if present
-    if (MEMORY_DB_CACHE.settings && MEMORY_DB_CACHE.settings.sayanApiUrl) {
-        MEMORY_DB_CACHE.settings.sayanApiUrl = sanitizeSayanUrl(MEMORY_DB_CACHE.settings.sayanApiUrl);
-    }
-    
     // Throttle disk writes to every 3 seconds to avoid event loop blockage
     if (saveTimeout) return true;
     
@@ -604,10 +570,6 @@ export const saveDbImmediate = (data) => {
         }
         if (saveTimeout) { clearTimeout(saveTimeout); saveTimeout = null; }
         if (MEMORY_DB_CACHE) {
-            // Sanitize Sayan API URL if present
-            if (MEMORY_DB_CACHE.settings && MEMORY_DB_CACHE.settings.sayanApiUrl) {
-                MEMORY_DB_CACHE.settings.sayanApiUrl = sanitizeSayanUrl(MEMORY_DB_CACHE.settings.sayanApiUrl);
-            }
             try {
                 sanitizeAndOffloadDb(MEMORY_DB_CACHE);
             } catch (optErr) {

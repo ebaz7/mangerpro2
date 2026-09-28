@@ -10,7 +10,6 @@ import {
 import { formatDate } from '../constants';
 import { User, UserRole } from '../types';
 import { getRolePermissions } from '../services/authService';
-import { getEffectiveApiUrl, getAuthToken } from '../services/apiService';
 import SayanChequeReceiptsTab from './SayanChequeReceiptsTab';
 
 interface PendingRequest {
@@ -214,29 +213,6 @@ export const SayanRegistrationsModule: React.FC<Props> = ({ currentUser, setting
         setTimeout(() => setToastMessage(null), 5000);
     };
 
-    const fetchApiJson = async (urlPath: string, options: RequestInit = {}) => {
-        const token = getAuthToken();
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-            ...(options.headers as Record<string, string> || {})
-        };
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
-        const fullUrl = getEffectiveApiUrl(urlPath);
-        const res = await fetch(fullUrl, {
-            ...options,
-            headers
-        });
-        const contentType = res.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-            const rawText = await res.text().catch(() => '');
-            console.error(`Non-JSON response from ${urlPath}:`, rawText.slice(0, 150));
-            return { success: false, error: `پاسخ دریافت شده از سرور معتبر نبود (کد وضعیت ${res.status}).` };
-        }
-        return await res.json();
-    };
-
     const handleInspectSayanDoc = async (doc57No: string, fiscalYear: string = selectedFiscalYear) => {
         if (!doc57No) return;
         setSayanInspectModal({
@@ -248,7 +224,8 @@ export const SayanRegistrationsModule: React.FC<Props> = ({ currentUser, setting
             error: null
         });
         try {
-            const data = await fetchApiJson(`/api/sayan/order-automation/sayan-doc/${doc57No}?fiscalYear=${fiscalYear}`);
+            const res = await fetch(`/api/sayan/order-automation/sayan-doc/${doc57No}?fiscalYear=${fiscalYear}`);
+            const data = await res.json();
             if (data.success) {
                 setSayanInspectModal(prev => ({ ...prev, loading: false, data }));
             } else {
@@ -266,8 +243,9 @@ export const SayanRegistrationsModule: React.FC<Props> = ({ currentUser, setting
         }
         try {
             // Status & config
-            const statusData = await fetchApiJson('/api/sayan/order-automation/status');
-            if (statusData && statusData.success) {
+            const statusRes = await fetch('/api/sayan/order-automation/status');
+            const statusData = await statusRes.json();
+            if (statusData.success) {
                 setConfig(statusData.config);
                 setConfigForm({
                     intervalMinutes: statusData.config?.intervalMinutes || 60,
@@ -278,24 +256,20 @@ export const SayanRegistrationsModule: React.FC<Props> = ({ currentUser, setting
                 if (statusData.recentLogs) {
                     setLogs(statusData.recentLogs);
                 }
-            } else if (statusData && statusData.error) {
-                if (!isSilent) showToast('خطا در دریافت وضعیت اتوماسیون: ' + statusData.error, 'error');
             }
 
             // Pending list (در جریان - strictly requests without pre-invoices)
-            const pendingData = await fetchApiJson(`/api/sayan/order-automation/pending?fiscalYear=${fy}`);
-            if (pendingData && pendingData.success) {
+            const pendingRes = await fetch(`/api/sayan/order-automation/pending?fiscalYear=${fy}`);
+            const pendingData = await pendingRes.json();
+            if (pendingData.success) {
                 setPendingList(pendingData.items || []);
-            } else if (pendingData && pendingData.error) {
-                if (!isSilent) showToast('خطا در دریافت لیست درخواست‌های معلق: ' + pendingData.error, 'error');
             }
 
             // Archived list (بایگانی - requests that already have pre-invoice 57 issued)
-            const archivedData = await fetchApiJson(`/api/sayan/order-automation/archived?fiscalYear=${fy}`);
-            if (archivedData && archivedData.success) {
+            const archivedRes = await fetch(`/api/sayan/order-automation/archived?fiscalYear=${fy}`);
+            const archivedData = await archivedRes.json();
+            if (archivedData.success) {
                 setArchivedList(archivedData.items || []);
-            } else if (archivedData && archivedData.error) {
-                if (!isSilent) showToast('خطا در دریافت لیست درخواست‌های بایگانی: ' + archivedData.error, 'error');
             }
         } catch (err: any) {
             if (!isSilent) {
@@ -442,10 +416,12 @@ export const SayanRegistrationsModule: React.FC<Props> = ({ currentUser, setting
         const newEnabled = !config.enabled;
         setActionLoading('toggle');
         try {
-            const data = await fetchApiJson('/api/sayan/order-automation/config', {
+            const res = await fetch('/api/sayan/order-automation/config', {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ enabled: newEnabled })
             });
+            const data = await parseSafeJson(res);
             if (data.success) {
                 setConfig(data.config);
                 showToast(newEnabled ? 'اتوماسیون ساعتی با موفقیت فعال شد.' : 'اتوماسیون ساعتی غیرفعال شد.', 'success');
@@ -462,10 +438,12 @@ export const SayanRegistrationsModule: React.FC<Props> = ({ currentUser, setting
     const handleSaveConfig = async () => {
         setActionLoading('save_config');
         try {
-            const data = await fetchApiJson('/api/sayan/order-automation/config', {
+            const res = await fetch('/api/sayan/order-automation/config', {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(configForm)
             });
+            const data = await parseSafeJson(res);
             if (data.success) {
                 setConfig(data.config);
                 setShowConfigPanel(false);
@@ -483,14 +461,16 @@ export const SayanRegistrationsModule: React.FC<Props> = ({ currentUser, setting
     const handleRunNow = async (dryRun: boolean = false) => {
         setActionLoading(dryRun ? 'run_dry' : 'run_live');
         try {
-            const data = await fetchApiJson('/api/sayan/order-automation/run-now', {
+            const res = await fetch('/api/sayan/order-automation/run-now', {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     dryRun,
                     fiscalYear: selectedFiscalYear,
                     triggeredBy: currentUser?.fullName || currentUser?.username || 'کاربر سیستم'
                 })
             });
+            const data = await parseSafeJson(res);
             if (data.success) {
                 const summary = data.summary || {};
                 const converted = summary.convertedCount ?? summary.converted ?? 0;
@@ -519,8 +499,9 @@ export const SayanRegistrationsModule: React.FC<Props> = ({ currentUser, setting
 
         setActionLoading(`convert_${doc.doc53Id}`);
         try {
-            const data = await fetchApiJson('/api/sayan/order-automation/convert-single', {
+            const res = await fetch('/api/sayan/order-automation/convert-single', {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     doc53Id: doc.doc53Id,
                     vendorCode,
@@ -530,6 +511,7 @@ export const SayanRegistrationsModule: React.FC<Props> = ({ currentUser, setting
                     requestedBy: currentUser?.fullName || currentUser?.username || 'کاربر سیستم'
                 })
             });
+            const data = await parseSafeJson(res);
             if (data.success) {
                 if (dryRun) {
                     showToast(`[شبیه‌سازی] پیش‌فاکتور برای سند ${doc.docNo} با موفقیت اعتبارسنجی شد.`, 'info');
@@ -552,7 +534,8 @@ export const SayanRegistrationsModule: React.FC<Props> = ({ currentUser, setting
         setSelectedDocForItems(doc);
         setItemsLoading(true);
         try {
-            const data = await fetchApiJson(`/api/sayan/order-automation/items/${doc.docNo}?fiscalYear=${doc.fiscalYear}`);
+            const res = await fetch(`/api/sayan/order-automation/items/${doc.docNo}?fiscalYear=${doc.fiscalYear}`);
+            const data = await parseSafeJson(res);
             if (data.success) {
                 setDocItems(data.items || []);
             } else {

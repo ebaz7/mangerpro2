@@ -85,26 +85,12 @@ export const executeSayanQuery = async (queryStr) => {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({ query: queryStr }),
-        signal: AbortSignal.timeout(30000)
+        signal: AbortSignal.timeout(20000)
     });
 
-    const contentType = response.headers.get('content-type') || '';
-    const isJson = contentType.includes('application/json');
-
     if (!response.ok) {
-        if (!isJson) {
-            const rawText = await response.text().catch(() => '');
-            console.error(`Sayan API Error (${response.status}): Non-JSON response:`, rawText.slice(0, 150));
-            throw new Error(`خطا در برقراری ارتباط با وب‌سرویس سایان (کد وضعیت ${response.status})`);
-        }
         const err = await response.json().catch(() => ({}));
         throw new Error(err.error || err.message || `خطا در ارتباط با وب‌سرویس سایان: کد وضعیت ${response.status}`);
-    }
-
-    if (!isJson) {
-        const rawText = await response.text().catch(() => '');
-        console.error(`Sayan API Non-JSON response (${response.status}):`, rawText.slice(0, 150));
-        throw new Error(`پاسخ دریافت شده از وب‌سرویس سایان به فرمت JSON نیست (کد ${response.status}).`);
     }
 
     const data = await response.json();

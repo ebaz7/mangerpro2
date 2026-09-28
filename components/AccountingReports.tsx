@@ -86,7 +86,7 @@ import { SendToChatModal } from './SendToChatModal';
 import { ReportShareToChatModal, TrazScope } from './ReportShareToChatModal';
 import { generatePdfFromHtml } from '../utils/pdfGenerator';
 import { UserRole } from '../types';
-import { getServerHost, getAuthToken } from '../services/apiService';
+import { getServerHost } from '../services/apiService';
 
 const getEffectiveApiUrl = (path: string) => {
     const host = getServerHost();
@@ -682,35 +682,20 @@ export default function AccountingReports({ currentUser, settings, onNavigateToC
     // BACKEND DATABASE COMMUNICATORS (Sayan Proxy)
     // ==========================================
     const runSayanQuery = async (queryStr: string) => {
-        const token = getAuthToken();
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json'
-        };
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
-
         const res = await fetch(getEffectiveApiUrl('/api/sayan-proxy'), {
             method: 'POST',
-            headers,
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 path: '/query',
                 method: 'POST',
                 body: { query: queryStr }
             })
         });
-
-        const contentType = res.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-            const text = await res.text().catch(() => '');
-            console.error('Non-JSON response from Sayan proxy:', text.slice(0, 150));
-            throw new Error(`پاسخ دریافت شده از سرور سایان معتبر نبود (کد وضعیت ${res.status}).`);
-        }
-
-        const data = await res.json();
         if (!res.ok) {
-            throw new Error(data.error || data.message || 'خطای سرور سایان');
+            const errDetails = await res.json().catch(() => ({}));
+            throw new Error(errDetails.error || 'خطای سرور سایان');
         }
+        const data = await res.json();
         return data.data || [];
     };
 

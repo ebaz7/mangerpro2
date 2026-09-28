@@ -69,29 +69,47 @@ const toPersianDigits = (num: string | number | undefined | null): string => {
     return String(num).replace(/[0-9]/g, d => '۰۱۲۳۴۵۶۷۸۹'[parseInt(d, 10)]);
 };
 
-export const toShamsiStr = (dateStr: string): string => {
+export const normalizeToAsciiDigits = (str: string | number | undefined | null): string => {
+    if (str === undefined || str === null) return '';
+    return String(str)
+        .replace(/[۰-۹]/g, d => '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)])
+        .replace(/[٠-٩]/g, d => '0123456789'['٠١٢٣٤٥٦٧٨٩'.indexOf(d)]);
+};
+
+export const toShamsiStr = (dateStr?: string | Date | null): string => {
     if (!dateStr) return '';
     try {
-        const d = new Date(dateStr);
-        if (isNaN(d.getTime())) return dateStr;
+        if (typeof dateStr === 'string') {
+            const normalized = normalizeToAsciiDigits(dateStr).trim();
+            const match = normalized.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+            if (match) {
+                const y = parseInt(match[1], 10);
+                if (y >= 1300 && y <= 1500) {
+                    return `${match[1]}/${match[2].padStart(2, '0')}/${match[3].padStart(2, '0')}`;
+                }
+            }
+        }
+        const d = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
+        if (isNaN(d.getTime())) return String(dateStr);
         const j = jalaali.toJalaali(d.getFullYear(), d.getMonth() + 1, d.getDate());
         const mm = String(j.jm).padStart(2, '0');
         const dd = String(j.jd).padStart(2, '0');
         return `${j.jy}/${mm}/${dd}`;
     } catch {
-        return dateStr;
+        return typeof dateStr === 'string' ? dateStr : '';
     }
 };
 
-export const fromShamsiStr = (shamsiStr: string): string => {
+export const fromShamsiStr = (shamsiStr?: string | null): string => {
     if (!shamsiStr) return '';
-    const clean = shamsiStr.replace(/[^0-9]/g, '/');
+    const normalized = normalizeToAsciiDigits(shamsiStr);
+    const clean = normalized.replace(/[^0-9]/g, '/');
     const parts = clean.split('/').filter(Boolean);
     if (parts.length === 3) {
         const jy = parseInt(parts[0], 10);
         const jm = parseInt(parts[1], 10);
         const jd = parseInt(parts[2], 10);
-        if (jy >= 1350 && jy <= 1500 && jm >= 1 && jm <= 12 && jd >= 1 && jd <= 31) {
+        if (jy >= 1300 && jy <= 1500 && jm >= 1 && jm <= 12 && jd >= 1 && jd <= 31) {
             const g = jalaali.toGregorian(jy, jm, jd);
             const gm = String(g.gm).padStart(2, '0');
             const gd = String(g.gd).padStart(2, '0');
@@ -121,13 +139,25 @@ export const ChequeItemRow: React.FC<Props> = ({
 
     // Shamsi Date editing state
     const [shamsiInput, setShamsiInput] = useState(() => toShamsiStr(item.dueDate));
+    const isTypingDateRef = useRef(false);
+
+    const safeShamsiValue = React.useMemo(() => {
+        return toShamsiStr(item.dueDate) || undefined;
+    }, [item.dueDate]);
 
     useEffect(() => {
-        setShamsiInput(toShamsiStr(item.dueDate));
+        if (isTypingDateRef.current) return;
+        const currentItemShamsi = toShamsiStr(item.dueDate);
+        const currentInputGreg = fromShamsiStr(shamsiInput);
+        if (currentInputGreg !== item.dueDate && shamsiInput !== currentItemShamsi) {
+            setShamsiInput(currentItemShamsi);
+        }
     }, [item.dueDate]);
 
     const handleShamsiDateTyping = (val: string) => {
-        let clean = val.replace(/[^0-9/]/g, '');
+        isTypingDateRef.current = true;
+        const normalized = normalizeToAsciiDigits(val);
+        let clean = normalized.replace(/[^0-9/]/g, '');
         if (clean.length > 10) {
             clean = clean.slice(0, 10);
         }
@@ -151,6 +181,17 @@ export const ChequeItemRow: React.FC<Props> = ({
                 const gd = String(g.gd).padStart(2, '0');
                 onChange(index, 'dueDate', `${g.gy}-${gm}-${gd}`);
             }
+        }
+    };
+
+    const handleDateBlur = () => {
+        isTypingDateRef.current = false;
+        const greg = fromShamsiStr(shamsiInput);
+        if (greg) {
+            onChange(index, 'dueDate', greg);
+            setShamsiInput(toShamsiStr(greg));
+        } else {
+            setShamsiInput(toShamsiStr(item.dueDate));
         }
     };
 
@@ -412,7 +453,11 @@ export const ChequeItemRow: React.FC<Props> = ({
                             type="text"
                             inputMode="numeric"
                             value={shamsiInput}
-                            onFocus={(e) => e.currentTarget.select()}
+                            onFocus={(e) => {
+                                isTypingDateRef.current = true;
+                                e.currentTarget.select();
+                            }}
+                            onBlur={handleDateBlur}
                             onChange={(e) => handleShamsiDateTyping(e.target.value)}
                             onKeyDown={(e) => handleFieldKeyDown(e, 'dueDate')}
                             placeholder="۱۴۰۵/۰۶/۱۸"
@@ -422,13 +467,18 @@ export const ChequeItemRow: React.FC<Props> = ({
                             <DatePicker
                                 calendar={persian}
                                 locale={persian_fa}
-                                value={item.dueDate ? new Date(item.dueDate) : undefined}
+                                value={safeShamsiValue}
                                 onChange={(date: any) => {
-                                    const val = date?.format?.('YYYY/MM/DD');
-                                    if (val) {
-                                        setShamsiInput(val);
-                                        const greg = fromShamsiStr(val);
-                                        if (greg) onChange(index, 'dueDate', greg);
+                                    if (!date) return;
+                                    isTypingDateRef.current = false;
+                                    const rawVal = date?.format?.('YYYY/MM/DD');
+                                    const ascii = normalizeToAsciiDigits(rawVal);
+                                    if (ascii) {
+                                        setShamsiInput(ascii);
+                                        const greg = fromShamsiStr(ascii);
+                                        if (greg) {
+                                            onChange(index, 'dueDate', greg);
+                                        }
                                     }
                                 }}
                                 render={(value: any, openCalendar: any) => (

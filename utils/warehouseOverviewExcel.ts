@@ -166,9 +166,10 @@ export const exportWarehouseOverviewToExcel = async (
     // SHEET 1: گزارش تراز وزنی و وضعیت انبارها
     // ==========================================
     const ws1 = wb.addWorksheet('گزارش تراز و وضعیت انبارها', {
-        views: [{ rtl: true, showGridLines: true }],
+        views: [{ showGridLines: true } as any],
         pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1 }
     });
+    (ws1 as any).views = [{ rightToLeft: true, showGridLines: true }];
 
     // Setup column widths
     ws1.columns = [
@@ -627,9 +628,10 @@ export const exportWarehouseOverviewToExcel = async (
     // ==========================================
     if (negativeItems.length > 0 || growthItems.length > 0) {
         const ws2 = wb.addWorksheet('تحلیل روند و کسری موجودی', {
-            views: [{ rtl: true, showGridLines: true }],
+            views: [{ showGridLines: true } as any],
             pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1 }
         });
+        (ws2 as any).views = [{ rightToLeft: true, showGridLines: true }];
 
         ws2.columns = [
             { key: 'colA', width: 7 },

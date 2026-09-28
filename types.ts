@@ -1334,20 +1334,6 @@ export interface ProformaHistoryEntry {
     recordSnapshot?: any;
 }
 
-export interface TradeAttachment {
-    id: string;
-    fileName: string;
-    url: string; // File URL path in /uploads/commercial/...
-    fileSize?: number;
-    fileType?: string;
-    category: string; // 'general' | 'timeline' | 'proforma' | 'insurance' | 'allocation' | 'currency' | 'shipping' | 'inspection' | 'clearance' | 'green_leaf' | 'internal_shipping' | 'agent_fees' | 'petrochemical'
-    subCategory?: string;
-    refId?: string;
-    uploadedAt: number;
-    uploadedBy: string;
-    description?: string;
-}
-
 export interface TradeRecord {
     id: string;
     fileNumber: string; // شماره پرونده
@@ -1386,7 +1372,6 @@ export interface TradeRecord {
         endorsements: InsuranceEndorsement[];
         isPaid: boolean;
         paymentDate: string;
-        attachments?: TradeAttachment[];
     };
     comments?: TradeComment[];
     currencyPurchaseData?: CurrencyPurchaseData;
@@ -1417,7 +1402,7 @@ export interface TradeRecord {
         registrationNumber?: string;
     };
     proformaHistory?: ProformaHistoryEntry[];
-    attachments?: TradeAttachment[];
+    attachments?: any[];
     purchaseType?: 'import' | 'domestic_bourse'; // نوع خرید: وارداتی ارزی یا خرید داخلی پتروشیمی / بورس کالا
     petrochemicalData?: PetrochemicalPurchaseData; // مشخصات و مراحل خرید داخلی پتروشیمی و بورس کالا
 }

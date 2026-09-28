@@ -1,5 +1,5 @@
 
-import { MeetingMinutes, PaymentOrder, User, OrderStatus, SystemSettings, ChatMessage, ChatGroup, GroupTask, TradeRecord, TradeAttachment, ExitPermit, ExitPermitStatus, WarehouseItem, WarehouseTransaction, SecurityLog, DriverPayment, PersonnelDelay, PersonnelOvertime, SecurityIncident, TaskGroup, SystemAnnouncement, ChequeReceipt, ChequeItem } from '../types';
+import { MeetingMinutes, PaymentOrder, User, OrderStatus, SystemSettings, ChatMessage, ChatGroup, GroupTask, TradeRecord, ExitPermit, ExitPermitStatus, WarehouseItem, WarehouseTransaction, SecurityLog, DriverPayment, PersonnelDelay, PersonnelOvertime, SecurityIncident, TaskGroup, SystemAnnouncement, ChequeReceipt, ChequeItem } from '../types';
 import { apiCall, getLocalData, LS_KEYS } from './apiService';
 
 // Safely return array
@@ -420,57 +420,10 @@ export const saveNote = async (note: Note): Promise<Note[]> => { return await ap
 export const updateNote = async (note: Note): Promise<Note[]> => { return await apiCall<Note[]>(`/notes/${note.id}`, 'PUT', note); };
 export const deleteNote = async (id: string): Promise<Note[]> => { return await apiCall<Note[]>(`/notes/${id}`, 'DELETE'); };
 
-export const uploadFile = async (fileName: string, fileData: string, category?: string): Promise<{ fileName: string, url: string }> => { 
-    return await apiCall<{ fileName: string, url: string }>('/upload', 'POST', { fileName, fileData, category }); 
-};
-
-export const uploadTradeAttachment = async (
-    file: File, 
-    category: string = 'commercial/general',
-    uploadedBy: string = 'کاربر',
-    description?: string,
-    subCategory?: string,
-    refId?: string
-): Promise<TradeAttachment> => {
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    const cleanCat = category.replace(/[^a-zA-Z0-9_\-\/]/g, '').trim() || 'commercial/general';
-    const response = await fetch(`/api/upload-file?category=${encodeURIComponent(cleanCat)}`, {
-        method: 'POST',
-        body: formData
-    });
-    
-    if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error || 'خطا در بارگذاری فایل در سرور');
-    }
-    
-    const result = await response.json();
-    return {
-        id: `att_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        fileName: result.fileName || file.name,
-        url: result.url,
-        fileSize: result.fileSize || file.size,
-        fileType: result.fileType || file.type,
-        category: cleanCat,
-        subCategory,
-        refId,
-        uploadedAt: Date.now(),
-        uploadedBy,
-        description
-    };
-};
-
-export const deleteUploadedFile = async (url: string): Promise<boolean> => {
-    try {
-        if (!url || !url.startsWith('/uploads/')) return false;
-        const res = await apiCall<{ success: boolean }>('/delete-file', 'POST', { url });
-        return !!res?.success;
-    } catch (e) {
-        console.warn("Could not delete file from server:", e);
-        return false;
-    }
+export const uploadFile = async (fileName: string, fileData: string): Promise<{ fileName: string, url: string }> => { 
+    // Wait, the client will change to pass 'File' directly instead of base64 from reader.
+    // So the signature of uploadFile might change, or we just implement uploadFileRaw
+    return await apiCall<{ fileName: string, url: string }>('/upload', 'POST', { fileName, fileData }); 
 };
 
 export const uploadFileChunked = async (file: File, onProgress: (p: number) => void): Promise<{ fileName: string, url: string }> => {

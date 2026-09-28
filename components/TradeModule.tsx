@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { User, TradeRecord, TradeAttachment, ProformaHistoryEntry, TradeStage, TradeItem, SystemSettings, InsuranceEndorsement, CurrencyPurchaseData, TradeTransaction, CurrencyTranche, CurrencyDelivery, TradeStageData, ShippingDocument, ShippingDocType, DocStatus, InvoiceItem, InspectionData, InspectionPayment, InspectionCertificate, ClearanceData, WarehouseReceipt, ClearancePayment, GreenLeafData, GreenLeafCustomsDuty, GreenLeafGuarantee, GreenLeafTax, GreenLeafRoadToll, InternalShippingData, ShippingPayment, AgentData, AgentPayment, PackingItem, UserRole, GuaranteeCheque } from '../types';
-import { getTradeRecords, saveTradeRecord, updateTradeRecord, deleteTradeRecord, getSettings, uploadFile, uploadTradeAttachment, deleteUploadedFile } from '../services/storageService';
+import { User, TradeRecord, ProformaHistoryEntry, TradeStage, TradeItem, SystemSettings, InsuranceEndorsement, CurrencyPurchaseData, TradeTransaction, CurrencyTranche, CurrencyDelivery, TradeStageData, ShippingDocument, ShippingDocType, DocStatus, InvoiceItem, InspectionData, InspectionPayment, InspectionCertificate, ClearanceData, WarehouseReceipt, ClearancePayment, GreenLeafData, GreenLeafCustomsDuty, GreenLeafGuarantee, GreenLeafTax, GreenLeafRoadToll, InternalShippingData, ShippingPayment, AgentData, AgentPayment, PackingItem, UserRole, GuaranteeCheque } from '../types';
+import { getTradeRecords, saveTradeRecord, updateTradeRecord, deleteTradeRecord, getSettings, uploadFile } from '../services/storageService';
 import { getUsers } from '../services/authService';
 import { generateUUID, formatCurrency, formatNumberString, deformatNumberString, parsePersianDate, formatDate, calculateDaysDiff, calculateDaysBetween, getStatusLabel } from '../constants';
 import FormattedNumberInput from './FormattedNumberInput';
@@ -30,8 +30,6 @@ import { extractAllClearancePayments, prepareRecordWithClearancePayments, getSta
 import GuaranteeAlertBanner from './trade/GuaranteeAlertBanner';
 import { checkAndNotifyGuaranteeDueDates, getGuaranteeDueStatus } from '../utils/guaranteeAlertUtils';
 import DomesticPetrochemicalTab from './trade/DomesticPetrochemicalTab';
-import { TradeAttachmentSection } from './trade/TradeAttachmentSection';
-import { TradeAllAttachmentsTab } from './trade/TradeAllAttachmentsTab';
 
 interface TradeModuleProps {
     currentUser: User;
@@ -103,7 +101,7 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
     const [showTransferModal, setShowTransferModal] = useState(false);
     const [transferForm, setTransferForm] = useState({ targetCommodityGroup: '', newFileNumber: '', newGoodsName: '', newSellerName: '', description: '' });
     
-    const [activeTab, setActiveTab] = useState<'timeline' | 'proforma' | 'domestic_petrochemical' | 'insurance' | 'allocation' | 'currency_purchase' | 'shipping_docs' | 'inspection' | 'clearance_docs' | 'green_leaf' | 'internal_shipping' | 'agent_fees' | 'final_calculation' | 'all_attachments'>('timeline');
+    const [activeTab, setActiveTab] = useState<'timeline' | 'proforma' | 'domestic_petrochemical' | 'insurance' | 'allocation' | 'currency_purchase' | 'shipping_docs' | 'inspection' | 'clearance_docs' | 'green_leaf' | 'internal_shipping' | 'agent_fees' | 'final_calculation'>('timeline');
     
     const [showEditMetadataModal, setShowEditMetadataModal] = useState(false);
     const [editMetadataForm, setEditMetadataForm] = useState<Partial<TradeRecord>>({});
@@ -642,20 +640,6 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
         } catch (err) {
             console.error("Failed to persist trade record:", err);
         }
-    };
-
-    const handleUpdateRecordAttachments = async (category: string, newCategoryAttachments: TradeAttachment[], subCategory?: string) => {
-        if (!selectedRecord) return;
-        const currentAtts = selectedRecord.attachments || [];
-        const otherAtts = currentAtts.filter(a => {
-            if (subCategory) {
-                return !(a.category === category && a.subCategory === subCategory);
-            }
-            return a.category !== category;
-        });
-        const merged = [...otherAtts, ...newCategoryAttachments];
-        const updated = { ...selectedRecord, attachments: merged };
-        await persistRecordUpdate(updated);
     };
 
     const handleOpenDossier = (record: TradeRecord, tab: any = 'timeline') => {
@@ -3266,21 +3250,8 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                                         <FormattedNumberInput className="w-full border border-gray-300 dark:border-gray-700 rounded-lg p-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-bold" value={stageFormData.costCurrency} onChange={val => setStageFormData({...stageFormData, costCurrency: val})} />
                                     </div>
                                 </div>
-                                <div>
-                                    <label className="text-xs font-bold block mb-1">توضیحات</label>
-                                    <textarea className="w-full border border-gray-300 dark:border-gray-700 rounded-lg p-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 h-20" value={stageFormData.description || ''} onChange={e => setStageFormData({...stageFormData, description: e.target.value})} />
-                                </div>
-                                <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
-                                    <TradeAttachmentSection
-                                        attachments={(stageFormData.attachments || []) as any}
-                                        onAttachmentsChange={(updated) => setStageFormData(prev => ({ ...prev, attachments: updated as any }))}
-                                        category={`commercial/timeline/${editingStage || 'general'}`}
-                                        title="پیوست‌های این مرحله (عکس و PDF)"
-                                        description="تصاویر اسناد، فیش‌ها و فایل‌های PDF مربوط به این مرحله"
-                                        currentUser={currentUser}
-                                        compact={true}
-                                    />
-                                </div>
+                                <div><label className="text-xs font-bold block mb-1">توضیحات</label><textarea className="w-full border border-gray-300 dark:border-gray-700 rounded-lg p-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 h-24" value={stageFormData.description || ''} onChange={e => setStageFormData({...stageFormData, description: e.target.value})} /></div>
+                                <div><label className="text-xs font-bold block mb-1">فایل‌های ضمیمه</label><div className="flex items-center gap-2 mb-2"><input type="file" ref={fileInputRef} className="hidden" onChange={handleStageFileChange} /><button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploadingStageFile} className="bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 px-3 py-1.5 rounded-lg text-xs hover:bg-gray-200 dark:hover:bg-gray-700 transition-all">{uploadingStageFile ? 'در حال آپلود...' : 'افزودن فایل'}</button></div><div className="space-y-1">{stageFormData.attachments?.map((att, i) => (<div key={i} className="flex justify-between items-center bg-gray-50 dark:bg-gray-800/60 p-2 rounded-lg text-xs"><button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setViewerUrl(att.url); setViewerName(att.fileName); setViewerOpen(true); }} className="text-blue-600 dark:text-blue-400 hover:underline text-right truncate max-w-[200px] flex items-center gap-1"><Eye size={12}/> {att.fileName}</button><div className="flex items-center gap-2"><button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); downloadAndOpenFile(att.url, att.fileName); }} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" title="دانلود"><FileDown size={14}/></button><button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSendToChatAttachment({ fileName: att.fileName, url: att.url }); setSendToChatDefaultMsg(`پیوست مربوط به پرونده ${selectedRecord.goodsName} (${selectedRecord.fileNumber}) - مرحله ${editingStage}`); setSendToChatOpen(true); }} className="text-blue-500 hover:text-blue-700 p-0.5" title="ارسال به گفتگو"><Share2 size={13}/></button><button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setStageFormData({...stageFormData, attachments: stageFormData.attachments?.filter((_, idx) => idx !== i)}); }} className="text-red-500"><X size={14}/></button></div></div>))}</div></div>
                                 <button type="button" onClick={handleSaveStage} className="w-full bg-blue-600 text-white py-2.5 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-md">ذخیره تغییرات</button>
                             </div>
                         </div>
@@ -3365,27 +3336,7 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                                 <button type="button" onClick={() => setActiveTab('internal_shipping')} className={`px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap transition-colors ${activeTab === 'internal_shipping' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>حمل داخلی</button>
                                 <button type="button" onClick={() => setActiveTab('agent_fees')} className={`px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap transition-colors ${activeTab === 'agent_fees' ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/50 dark:text-teal-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>هزینه‌های ترخیص</button>
                                 <button type="button" onClick={() => setActiveTab('final_calculation')} className={`px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap transition-colors ${activeTab === 'final_calculation' ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>محاسبه نهایی</button>
-                                <button type="button" onClick={() => setActiveTab('all_attachments')} className={`px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap transition-colors flex items-center gap-1.5 ${activeTab === 'all_attachments' ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 hover:bg-purple-100'}`}>
-                                    <Paperclip size={14} />
-                                    <span>همه پیوست‌ها و مدارک</span>
-                                    {(selectedRecord?.attachments?.length || 0) > 0 && (
-                                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${activeTab === 'all_attachments' ? 'bg-white/20 text-white' : 'bg-purple-200 dark:bg-purple-900 text-purple-900 dark:text-purple-100'}`}>
-                                            {selectedRecord?.attachments?.length}
-                                        </span>
-                                    )}
-                                </button>
                             </>
-                        )}
-                        {(selectedRecord?.purchaseType === 'domestic_bourse' || Boolean(selectedRecord?.petrochemicalData)) && (
-                            <button type="button" onClick={() => setActiveTab('all_attachments')} className={`px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap transition-colors flex items-center gap-1.5 ${activeTab === 'all_attachments' ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 hover:bg-purple-100'}`}>
-                                <Paperclip size={14} />
-                                <span>همه پیوست‌ها و مدارک</span>
-                                {(selectedRecord?.attachments?.length || 0) > 0 && (
-                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${activeTab === 'all_attachments' ? 'bg-white/20 text-white' : 'bg-purple-200 dark:bg-purple-900 text-purple-900 dark:text-purple-100'}`}>
-                                        {selectedRecord?.attachments?.length}
-                                    </span>
-                                )}
-                            </button>
                         )}
                     </div>
                 </div>
@@ -4001,18 +3952,6 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                                      ))}
                                  </div>
                             </div>
-
-                            {/* Proforma & Licensing Attachments */}
-                            <div className="glass-panel p-6 rounded-xl shadow-sm border bg-white dark:bg-gray-800">
-                                <TradeAttachmentSection
-                                    attachments={selectedRecord.attachments?.filter(a => a.category?.includes('proforma') || a.subCategory === 'proforma') || []}
-                                    onAttachmentsChange={(updated) => handleUpdateRecordAttachments('commercial/proforma', updated, 'proforma')}
-                                    category="commercial/proforma"
-                                    title="پیوست‌ها و اسناد پروفرما و مجوزها (تصویر و PDF)"
-                                    description="تصویر پیش‌فاکتور، تاییدیه ثبت سفارش، فرم‌های گواهی استاندارد، مدارک فروشنده و فیش‌های کارمزد"
-                                    currentUser={currentUser}
-                                />
-                            </div>
                         </div>
                     )}
 
@@ -4032,18 +3971,6 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                             editingEndorsementId={editingEndorsementId}
                             onEditEndorsement={handleEditEndorsement}
                             onCancelEditEndorsement={handleCancelEditEndorsement}
-                            attachments={(selectedRecord.insuranceData?.attachments && selectedRecord.insuranceData.attachments.length > 0) ? selectedRecord.insuranceData.attachments : (selectedRecord.attachments?.filter(a => a.category?.includes('insurance')) || [])}
-                            onAttachmentsChange={async (updated) => {
-                                const updatedInsuranceData = { ...selectedRecord.insuranceData, attachments: updated };
-                                const otherAtts = (selectedRecord.attachments || []).filter(a => !a.category?.includes('insurance'));
-                                const updatedRecord = { 
-                                    ...selectedRecord, 
-                                    insuranceData: updatedInsuranceData as any,
-                                    attachments: [...otherAtts, ...updated]
-                                };
-                                await persistRecordUpdate(updatedRecord);
-                            }}
-                            currentUser={currentUser}
                         />
                     )}
 
@@ -4231,18 +4158,6 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                                 onToggleDelivery={handleToggleCurrencyGuaranteeDelivery}
                                 companyBanks={companySpecificBanks}
                             />
-
-                            {/* Currency Purchase Attachments */}
-                            <div className="glass-panel p-6 rounded-xl shadow-sm border bg-white dark:bg-gray-800">
-                                <TradeAttachmentSection
-                                    attachments={selectedRecord.attachments?.filter(a => a.category?.includes('currency') || a.subCategory === 'currency') || []}
-                                    onAttachmentsChange={(updated) => handleUpdateRecordAttachments('commercial/currency', updated, 'currency')}
-                                    category="commercial/currency"
-                                    title="پیوست‌ها و اسناد خرید ارز و صرافی (تصویر و PDF)"
-                                    description="رسید حواله ارزی، سوئیفت، تاییدیه صرافی، فیش‌های واریزی ریالی و چک‌های تعهد ارزی"
-                                    currentUser={currentUser}
-                                />
-                            </div>
                         </div>
                     )}
 
@@ -4335,18 +4250,7 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                                     </div>
                                 )}
                                 
-                                 <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-                                     <TradeAttachmentSection
-                                         attachments={(shippingDocForm.attachments || []) as any}
-                                         onAttachmentsChange={(updated) => setShippingDocForm(prev => ({ ...prev, attachments: updated as any }))}
-                                         category="commercial/shipping"
-                                         subCategory={activeShippingSubTab}
-                                         title={`پیوست‌ها و مدارک ${activeShippingSubTab} (عکس و PDF)`}
-                                         description={`بارگذاری اسناد، تصاویر و فایل‌های PDF مربوط به ${activeShippingSubTab}`}
-                                         currentUser={currentUser}
-                                         compact={false}
-                                     />
-                                 </div>
+                                <div><label className="text-xs font-bold block mb-1">فایل‌های ضمیمه</label><div className="flex items-center gap-2 mb-2"><input type="file" ref={docFileInputRef} className="hidden" onChange={handleDocFileChange} /><button type="button" onClick={() => docFileInputRef.current?.click()} disabled={uploadingDocFile} className="bg-gray-100 border px-3 py-1 rounded text-xs hover:bg-gray-200">{uploadingDocFile ? 'در حال آپلود...' : 'افزودن فایل'}</button></div><div className="space-y-1">{shippingDocForm.attachments?.map((att, i) => (<div key={i} className="flex justify-between items-center bg-gray-50 p-2 rounded text-xs"><button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setViewerUrl(att.url); setViewerName(att.fileName); setViewerOpen(true); }} className="text-blue-600 hover:underline text-right truncate max-w-[200px] flex items-center gap-1"><Eye size={12}/> {att.fileName}</button><div className="flex items-center gap-2"><button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); downloadAndOpenFile(att.url, att.fileName); }} className="text-gray-500 hover:text-gray-700 p-0.5" title="دانلود"><FileDown size={14}/></button><button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSendToChatAttachment({ fileName: att.fileName, url: att.url }); setSendToChatDefaultMsg(`سند حمل ${activeShippingSubTab} مربوط به پرونده ${selectedRecord.goodsName} (${selectedRecord.fileNumber})`); setSendToChatOpen(true); }} className="text-blue-500 hover:text-blue-700 p-0.5" title="ارسال به گفتگو"><Share2 size={13}/></button><button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShippingDocForm({...shippingDocForm, attachments: shippingDocForm.attachments?.filter((_, idx) => idx !== i)}); }} className="text-red-500"><X size={14}/></button></div></div>))}</div></div>
 
                                 <div className="flex justify-end items-center gap-2 pt-4 border-t">
                                     {editingShippingDocId && (
@@ -4697,18 +4601,6 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                                 </div>
                                 <div className="overflow-x-auto"><table className="w-full text-sm text-right"><thead className="bg-gray-100 text-gray-700"><tr><th className="p-3">بانک</th><th className="p-3">مبلغ</th><th className="p-3">تاریخ</th><th className="p-3">پارت</th><th className="p-3">حذف</th></tr></thead><tbody>{inspectionForm.payments?.map(p => (<tr key={p.id} className="border-b hover:bg-gray-50"><td className="p-3">{p.bank}</td><td className="p-3 font-mono">{formatCurrency(p.amount)}</td><td className="p-3">{p.date}</td><td className="p-3">{p.part}</td><td className="p-3 text-center"><div className="flex justify-center gap-2 items-center"><button type="button" onClick={()=>handleEditInspectionPayment(p)} className="text-amber-600 hover:text-amber-800 p-1 hover:bg-amber-50 rounded" title="ویرایش"><Edit size={16}/></button><button type="button" onClick={()=>handleDeleteInspectionPayment(p.id)} className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded" title="حذف"><Trash2 size={16}/></button></div></td></tr>))}</tbody></table></div>
                             </div>
-
-                            {/* Inspection Attachments */}
-                            <div className="glass-panel p-6 rounded-xl shadow-sm border bg-white dark:bg-gray-800">
-                                <TradeAttachmentSection
-                                    attachments={selectedRecord.attachments?.filter(a => a.category?.includes('inspection') || a.subCategory === 'inspection') || []}
-                                    onAttachmentsChange={(updated) => handleUpdateRecordAttachments('commercial/inspection', updated, 'inspection')}
-                                    category="commercial/inspection"
-                                    title="پیوست‌ها و اسناد گواهی بازرسی و آزمایشگاه (تصویر و PDF)"
-                                    description="تصویر اصل گواهی بازرسی کالا (COI)، گزارش آزمایشگاه، تاییدیه انطباق استاندارد و فیش‌های پرداخت"
-                                    currentUser={currentUser}
-                                />
-                            </div>
                         </div>
                     )}
 
@@ -4760,18 +4652,6 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                                     <div className="flex gap-1"><button type="button" onClick={handleAddClearancePayment} className={`flex-1 ${editingClearancePaymentId ? "bg-amber-600 hover:bg-amber-700 text-xs px-2" : "bg-green-600 hover:bg-green-700"} text-white p-2 rounded-lg h-[38px] font-bold flex items-center justify-center gap-1 shadow-sm transition-all`} title={editingClearancePaymentId ? "ذخیره پرداخت ترخیصیه" : "افزودن پرداخت ترخیصیه"}>{editingClearancePaymentId ? <><Save size={15}/><span>ذخیره</span></> : <Plus size={16} className="mx-auto"/>}</button>{editingClearancePaymentId && (<button type="button" onClick={handleCancelEditClearancePayment} className="bg-gray-200 text-gray-700 px-2 rounded-lg hover:bg-gray-300 h-[38px] text-xs font-bold transition-all" title="انصراف"><X size={15}/></button>)}</div>
                                 </div>
                                 <div className="overflow-x-auto"><table className="w-full text-sm text-right"><thead className="bg-gray-100 text-gray-700"><tr><th className="p-3">بانک</th><th className="p-3">مبلغ</th><th className="p-3">تاریخ</th><th className="p-3">حذف</th></tr></thead><tbody>{clearanceForm.payments?.map(p => (<tr key={p.id} className="border-b hover:bg-gray-50"><td className="p-3">{p.bank}</td><td className="p-3 font-mono">{formatCurrency(p.amount)}</td><td className="p-3">{p.date}</td><td className="p-3 text-center"><div className="flex justify-center gap-2 items-center"><button type="button" onClick={()=>handleEditClearancePayment(p)} className="text-amber-600 hover:text-amber-800 p-1 hover:bg-amber-50 rounded" title="ویرایش"><Edit size={16}/></button><button type="button" onClick={()=>handleDeleteClearancePayment(p.id)} className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded" title="حذف"><Trash2 size={16}/></button></div></td></tr>))}</tbody></table></div>
-                            </div>
-
-                            {/* Clearance & Warehouse Receipt Attachments */}
-                            <div className="glass-panel p-6 rounded-xl shadow-sm border bg-white dark:bg-gray-800">
-                                <TradeAttachmentSection
-                                    attachments={selectedRecord.attachments?.filter(a => a.category?.includes('clearance') || a.subCategory === 'clearance') || []}
-                                    onAttachmentsChange={(updated) => handleUpdateRecordAttachments('commercial/clearance', updated, 'clearance')}
-                                    category="commercial/clearance"
-                                    title="پیوست‌ها و اسناد ترخیصیه و قبض انبار (تصویر و PDF)"
-                                    description="تصویر قبض انبار گمرک، ترخیصیه خط کشتیرانی، اعلامیه ورود کالا و نامه‌های تحویل"
-                                    currentUser={currentUser}
-                                />
                             </div>
                         </div>
                     )}
@@ -4948,18 +4828,6 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                                 </div>
                             </div>
                             <div className="bg-green-100 p-4 rounded-lg flex justify-between items-center font-bold text-green-900 border border-green-200"><span>جمع کل هزینه‌های گمرکی (نقدی + سپرده + مالیات + عوارض)</span><span className="font-mono text-lg">{formatCurrency(calculateGreenLeafTotal(greenLeafForm))}</span></div>
-
-                            {/* Green Leaf & Customs Attachments */}
-                            <div className="glass-panel p-6 rounded-xl shadow-sm border bg-white dark:bg-gray-800">
-                                <TradeAttachmentSection
-                                    attachments={selectedRecord.attachments?.filter(a => a.category?.includes('green_leaf') || a.subCategory === 'green_leaf') || []}
-                                    onAttachmentsChange={(updated) => handleUpdateRecordAttachments('commercial/green_leaf', updated, 'green_leaf')}
-                                    category="commercial/green_leaf"
-                                    title="پیوست‌ها و اسناد برگ سبز، کوتاژ و ضمانت‌نامه‌ها (تصویر و PDF)"
-                                    description="تصویر برگ سبز گمرکی، اظهارنامه کوتاژ، ضمانت‌نامه‌های بانکی گمرک و فیش‌های مالیات و عوارض"
-                                    currentUser={currentUser}
-                                />
-                            </div>
                         </div>
                     )}
 
@@ -5008,18 +4876,6 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                                         </tbody>
                                     </table>
                                 </div>
-                            </div>
-
-                            {/* Internal Shipping Attachments */}
-                            <div className="glass-panel p-6 rounded-xl shadow-sm border bg-white dark:bg-gray-800">
-                                <TradeAttachmentSection
-                                    attachments={selectedRecord.attachments?.filter(a => a.category?.includes('internal_shipping') || a.subCategory === 'internal_shipping') || []}
-                                    onAttachmentsChange={(updated) => handleUpdateRecordAttachments('commercial/internal_shipping', updated, 'internal_shipping')}
-                                    category="commercial/internal_shipping"
-                                    title="پیوست‌ها و اسناد حمل داخلی، بارنامه و باسکول (تصویر و PDF)"
-                                    description="تصویر بارنامه‌های جاده‌ای، حواله‌های بارگیری، قبوض باسکول مبدا و مقصد و رسیدهای تسویه رانندگان"
-                                    currentUser={currentUser}
-                                />
                             </div>
                         </div>
                     )}
@@ -5215,18 +5071,6 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                                             </tbody>
                                         </table>
                                     </div>
-                                </div>
-
-                                {/* Agent / Clearance Fees Attachments */}
-                                <div className="glass-panel p-6 rounded-xl shadow-sm border bg-white dark:bg-gray-800">
-                                    <TradeAttachmentSection
-                                        attachments={selectedRecord.attachments?.filter(a => a.category?.includes('agent_fees') || a.subCategory === 'agent_fees') || []}
-                                        onAttachmentsChange={(updated) => handleUpdateRecordAttachments('commercial/agent_fees', updated, 'agent_fees')}
-                                        category="commercial/agent_fees"
-                                        title="پیوست‌ها و فاکتورهای هزینه‌های ترخیص و ایجنت (تصویر و PDF)"
-                                        description="تصویر صورتحساب حق‌العمل‌کار، فیش‌های انبارداری، خدمات بندری، فیش‌های آزمایشگاه و رسیدهای تسویه"
-                                        currentUser={currentUser}
-                                    />
                                 </div>
                             </div>
                         );
@@ -5543,31 +5387,9 @@ const TradeModule: React.FC<TradeModuleProps> = ({ currentUser }) => {
                                                 })}
                                             </div>
                                         </div>
-
-                                        {/* Final Calculation & Settlement Attachments */}
-                                        <div className="glass-panel p-6 rounded-xl shadow-sm border bg-white dark:bg-gray-800 mt-6" data-html2canvas-ignore>
-                                            <TradeAttachmentSection
-                                                attachments={selectedRecord.attachments?.filter(a => a.category?.includes('final_calculation') || a.subCategory === 'final_calculation' || a.category === 'commercial/settlement') || []}
-                                                onAttachmentsChange={(updated) => handleUpdateRecordAttachments('commercial/final_calculation', updated, 'final_calculation')}
-                                                category="commercial/final_calculation"
-                                                title="پیوست‌ها و اسناد تسویه و محاسبه نهایی (تصویر و PDF)"
-                                                description="صورتحساب تسویه حساب نهایی، فیش‌های واریز سود بازرگانی، گزارش‌های حسابرسی و اسناد تکمیلی پرونده"
-                                                currentUser={currentUser}
-                                            />
-                                        </div>
                                     </>
                                 );
                             })()}
-                        </div>
-                    )}
-
-                    {activeTab === 'all_attachments' && (
-                        <div className="p-4 sm:p-6 max-w-7xl mx-auto">
-                            <TradeAllAttachmentsTab
-                                record={selectedRecord}
-                                onUpdateRecord={persistRecordUpdate}
-                                currentUser={currentUser}
-                            />
                         </div>
                     )}
                 </div>

@@ -9,6 +9,23 @@ export const directAgent = new Agent({
     pipelining: 0
 });
 
+/**
+ * Resilient fetch function that first attempts connection using the default global dispatcher
+ * (respecting system proxy/VPN configurations) and automatically falls back to directAgent
+ * (bypassing proxies) if the initial connection fails.
+ */
+export const robustFetch = async (url, options = {}) => {
+    try {
+        const opt = { ...options };
+        delete opt.dispatcher; // Ensure default dispatcher is used first
+        return await fetch(url, opt);
+    } catch (err) {
+        console.warn(`[Robust Fetch] Default fetch failed for ${url}: ${err.message}. Retrying with directAgent...`);
+        const optDirect = { ...options, dispatcher: directAgent };
+        return await fetch(url, optDirect);
+    }
+};
+
 // Configure NO_PROXY for private subnets so local services are never proxied
 const defaultNoProxy = '192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,127.0.0.1,localhost,80.210.31.176';
 process.env.NO_PROXY = process.env.NO_PROXY ? `${process.env.NO_PROXY},${defaultNoProxy}` : defaultNoProxy;
@@ -1698,15 +1715,14 @@ const executeSayanQuery = async (db, queryStr) => {
         throw new Error('تنظیمات آدرس API و کلید امنیتی سایان در بخش تنظیمات سیستم وارد نشده است.');
     }
     const finalUrl = `${serverSayanBaseUrl}/query`;
-    const response = await fetch(finalUrl, {
+    const response = await robustFetch(finalUrl, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${serverSayanApiKey}`,
             'Accept': 'application/json',
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ query: queryStr }),
-        dispatcher: directAgent
+        body: JSON.stringify({ query: queryStr })
     });
     if (!response.ok) {
         const err = await response.json().catch(() => ({}));
@@ -1743,15 +1759,14 @@ app.post('/api/sayan-proxy', async (req, res) => {
 
         const fetchOptions = {
             method: targetMethod || 'GET',
-            headers,
-            dispatcher: directAgent
+            headers
         };
 
         if (targetBody && (targetMethod === 'POST' || targetMethod === 'PUT')) {
             fetchOptions.body = JSON.stringify(targetBody);
         }
 
-        const response = await fetch(finalUrl, fetchOptions);
+        const response = await robustFetch(finalUrl, fetchOptions);
         const data = await response.json().catch(() => null);
 
         if (!response.ok) {
@@ -1790,12 +1805,11 @@ app.post('/api/sayan/test-connection', async (req, res) => {
             headers['x-api-key'] = apiKey;
         }
 
-        const response = await fetch(`${cleanUrl}/query`, {
+        const response = await robustFetch(`${cleanUrl}/query`, {
             method: 'POST',
             headers,
             body: JSON.stringify({ query: 'SELECT 1 AS ping' }),
-            signal: controller.signal,
-            dispatcher: directAgent
+            signal: controller.signal
         }).finally(() => clearTimeout(timeoutId));
 
         const latency = Date.now() - startTime;

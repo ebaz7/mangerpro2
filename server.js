@@ -5048,62 +5048,21 @@ const parseDetailNote = (note) => {
     return result;
 };
 
-// Search persons across Sayan ERP (GNR_TBL_001)
+// Search persons across Sayan ERP (GNR_TBL_001 & ACT_TBL_007)
 app.all(['/api/sayan/search-persons', '/api/sayan-persons/search'], async (req, res) => {
     try {
-        const db = getDb();
-        const q = String(req.query.q || req.body.q || '').trim();
-        if (!q) {
-            return res.json({ success: true, persons: [] });
-        }
-
-        const sanitized = q.replace(/'/g, "''");
-        const queryStr = `
-            SELECT TOP 35
-                Field_001 as Id,
-                Field_003 as PersonCode,
-                Field_005 as SecondaryCode,
-                RTRIM(LTRIM(COALESCE(Field_006, ''))) as FirstName,
-                RTRIM(LTRIM(COALESCE(Field_007, ''))) as LastName,
-                RTRIM(LTRIM(COALESCE(Field_008, ''))) as FatherOrDetail,
-                RTRIM(LTRIM(COALESCE(Field_009, ''))) as NationalCode,
-                RTRIM(LTRIM(COALESCE(Field_015, ''))) as Mobile,
-                RTRIM(LTRIM(COALESCE(Field_021, ''))) as AccountingCode,
-                RTRIM(LTRIM(COALESCE(Field_030, ''))) as TafsiliCode,
-                RTRIM(LTRIM(COALESCE(Field_013, ''))) as Address
-            FROM GNR_TBL_001
-            WHERE (
-                Field_006 LIKE N'%${sanitized}%' OR
-                Field_007 LIKE N'%${sanitized}%' OR
-                Field_003 LIKE '%${sanitized}%' OR
-                Field_005 LIKE '%${sanitized}%' OR
-                Field_008 LIKE N'%${sanitized}%' OR
-                Field_009 LIKE '%${sanitized}%' OR
-                Field_015 LIKE '%${sanitized}%' OR
-                Field_021 LIKE '%${sanitized}%' OR
-                Field_030 LIKE '%${sanitized}%'
-            )
-            ORDER BY Field_001 DESC
-        `;
-
-        const rows = await executeSayanQuery(db, queryStr);
-        const persons = rows.map(r => {
-            const fullName = `${r.FirstName || ''} ${r.LastName || ''}`.trim() || r.FatherOrDetail || `شخص ${r.PersonCode}`;
-            return {
-                id: String(r.Id || ''),
-                personCode: String(r.PersonCode || r.SecondaryCode || ''),
-                name: fullName,
-                firstName: r.FirstName || '',
-                lastName: r.LastName || '',
-                fatherOrDetail: r.FatherOrDetail || '',
-                nationalCode: r.NationalCode || '',
-                mobile: r.Mobile || '',
-                accountingCode: String(r.AccountingCode || r.TafsiliCode || r.PersonCode || ''),
-                tafsiliCode: String(r.TafsiliCode || ''),
-                address: r.Address || ''
-            };
-        });
-
+        const q = String(req.query.q || req.body.q || req.query.query || req.query.search || '').trim();
+        const results = await sayanChequeService.searchSayanPersons(q, 35);
+        const persons = results.map(r => ({
+            id: r.personCode,
+            personCode: r.personCode,
+            name: r.fullName,
+            fullName: r.fullName,
+            nationalCode: r.nationalId || '',
+            mobile: r.mobile || '',
+            accountingCode: r.personCode,
+            tafsiliCode: r.personCode
+        }));
         res.json({ success: true, persons });
     } catch (e) {
         console.error("Sayan Search Persons Error:", e);

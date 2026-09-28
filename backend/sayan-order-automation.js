@@ -1,4 +1,4 @@
-import { getDb, saveDb } from './db-manager.js';
+import { getDb, saveDb, robustFetch } from './db-manager.js';
 
 /**
  * Enterprise Sayan Order Automation Module
@@ -77,7 +77,7 @@ export const executeSayanQuery = async (queryStr) => {
     const serverSayanApiKey = settings.sayanApiKey || process.env.SAYAN_API_KEY || 's_gate_live_vzje5nkn7q4u';
 
     const finalUrl = `${serverSayanBaseUrl.replace(/\/$/, '')}/query`;
-    const response = await fetch(finalUrl, {
+    const response = await robustFetch(finalUrl, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${serverSayanApiKey}`,
@@ -85,29 +85,15 @@ export const executeSayanQuery = async (queryStr) => {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({ query: queryStr }),
-        signal: AbortSignal.timeout(30000)
+        timeout: 30000
     });
 
-    const contentType = response.headers.get('content-type') || '';
-    const isJson = contentType.includes('application/json');
-
     if (!response.ok) {
-        if (!isJson) {
-            const rawText = await response.text().catch(() => '');
-            console.error(`Sayan API Error (${response.status}): Non-JSON response:`, rawText.slice(0, 150));
-            throw new Error(`خطا در برقراری ارتباط با وب‌سرویس سایان (کد وضعیت ${response.status})`);
-        }
         const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || err.message || `خطا در ارتباط با وب‌سرویس سایان: کد وضعیت ${response.status}`);
+        throw new Error(err.error || err.message || `خطا در ارتباط با وب‌سرویس سایان (کد وضعیت ${response.status})`);
     }
 
-    if (!isJson) {
-        const rawText = await response.text().catch(() => '');
-        console.error(`Sayan API Non-JSON response (${response.status}):`, rawText.slice(0, 150));
-        throw new Error(`پاسخ دریافت شده از وب‌سرویس سایان به فرمت JSON نیست (کد ${response.status}).`);
-    }
-
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
     if (data.success === false) {
         throw new Error(data.error || data.message || 'خطای سرور سایان');
     }

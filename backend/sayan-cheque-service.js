@@ -328,51 +328,109 @@ export const getNextChequeReceiptNumbers = async (fiscalYear = '4') => {
 };
 
 /**
- * Search Sayan Tafsili / Persons by Name or Code from GNR_TBL_001
+ * Search Sayan Tafsili / Persons by Name or Code from GNR_TBL_001 & ACT_TBL_007
  * Supports Persian/Arabic character normalization and search by code, name, nationalId or mobile.
  */
-export const searchSayanPersons = async (query = '', limit = 40) => {
+export const searchSayanPersons = async (query = '', limit = 50) => {
     try {
         const rawQ = (query || '').trim();
         const cleanQ = rawQ.replace(/'/g, "''");
-        // Create Persian/Arabic Yeh & Kaf variants for resilient search
         const qPersian = cleanQ.replace(/\u064A/g, 'ی').replace(/\u0643/g, 'ک');
         const qArabic = cleanQ.replace(/\u06CC/g, 'ي').replace(/\u06A9/g, 'ك');
 
-        let sql = `
+        let actFilter = '';
+        let gnrFilter = '';
+        if (cleanQ) {
+            actFilter = ` AND (
+                Field_005 LIKE '%${cleanQ}%' OR 
+                Field_003 LIKE '%${cleanQ}%' OR 
+                Field_006 LIKE N'%${cleanQ}%' OR 
+                Field_006 LIKE N'%${qPersian}%' OR 
+                Field_006 LIKE N'%${qArabic}%'
+            )`;
+
+            gnrFilter = ` AND (
+                Field_003 LIKE '%${cleanQ}%' OR 
+                Field_005 LIKE '%${cleanQ}%' OR 
+                Field_006 LIKE N'%${cleanQ}%' OR 
+                Field_007 LIKE N'%${cleanQ}%' OR 
+                Field_006 LIKE N'%${qPersian}%' OR 
+                Field_007 LIKE N'%${qPersian}%' OR 
+                Field_006 LIKE N'%${qArabic}%' OR 
+                Field_007 LIKE N'%${qArabic}%' OR
+                Field_009 LIKE '%${cleanQ}%' OR
+                Field_015 LIKE '%${cleanQ}%'
+            )`;
+        }
+
+        // 1. Query GNR_TBL_001 (Main Sayan Persons Table)
+        const gnrSql = `
             SELECT TOP ${limit}
-                Field_003 as PersonCode,
+                RTRIM(LTRIM(Field_003)) as PersonCode,
                 RTRIM(LTRIM(CONCAT(COALESCE(Field_006, ''), ' ', COALESCE(Field_007, '')))) as FullName,
                 COALESCE(Field_009, '') as NationalId,
                 COALESCE(Field_015, '') as Mobile
-            FROM GNR_TBL_001
-            WHERE (Field_018 = 1 OR Field_018 IS NULL)
+            FROM GNR_TBL_001 WITH (NOLOCK)
+            WHERE Field_006 IS NOT NULL AND RTRIM(LTRIM(Field_006)) != '' ${gnrFilter}
+            ORDER BY CAST(Field_003 as bigint) DESC
         `;
-        if (cleanQ) {
-            sql += ` AND (
-                Field_003 LIKE '%${cleanQ}%' OR 
-                Field_009 LIKE '%${cleanQ}%' OR
-                Field_015 LIKE '%${cleanQ}%' OR
-                Field_006 LIKE N'%${cleanQ}%' OR 
-                Field_007 LIKE N'%${cleanQ}%' OR
-                Field_006 LIKE N'%${qPersian}%' OR 
-                Field_007 LIKE N'%${qPersian}%' OR
-                Field_006 LIKE N'%${qArabic}%' OR 
-                Field_007 LIKE N'%${qArabic}%' OR
-                CONCAT(COALESCE(Field_006, ''), ' ', COALESCE(Field_007, '')) LIKE N'%${cleanQ}%' OR
-                CONCAT(COALESCE(Field_006, ''), ' ', COALESCE(Field_007, '')) LIKE N'%${qPersian}%' OR
-                CONCAT(COALESCE(Field_006, ''), ' ', COALESCE(Field_007, '')) LIKE N'%${qArabic}%'
-            )`;
-        }
-        sql += ` ORDER BY CAST(Field_003 as bigint) DESC`;
 
-        const rows = await executeSayanQuery(sql);
-        return rows.map(r => ({
-            personCode: (r.PersonCode || '').trim(),
-            fullName: (r.FullName || '').trim() || `کد ${r.PersonCode}`,
-            nationalId: (r.NationalId || '').trim(),
-            mobile: (r.Mobile || '').trim()
-        }));
+        // 2. Query ACT_TBL_007 (Accounting Tafsili Persons Table)
+        const actSql = `
+            SELECT TOP ${limit}
+                RTRIM(LTRIM(Field_005)) as PersonCode,
+                RTRIM(LTRIM(Field_006)) as FullName,
+                '' as NationalId,
+                '' as Mobile
+            FROM ACT_TBL_007 WITH (NOLOCK)
+            WHERE (Field_004 = '11' OR Field_004 = '31') 
+              AND Field_006 IS NOT NULL 
+              AND RTRIM(LTRIM(Field_006)) != '' ${actFilter}
+            ORDER BY CAST(Field_005 as bigint) DESC
+        `;
+
+        const [gnrRows, actRows] = await Promise.all([
+            executeSayanQuery(gnrSql).catch(() => []),
+            executeSayanQuery(actSql).catch(() => [])
+        ]);
+
+        const mergedMap = new Map();
+
+        // Add GNR_TBL_001 results first
+        for (const r of (gnrRows || [])) {
+            const code = (r.PersonCode || '').trim();
+            const name = (r.FullName || '').trim();
+            if (code && name) {
+                mergedMap.set(code, {
+                    personCode: code,
+                    fullName: name,
+                    nationalId: (r.NationalId || '').trim(),
+                    mobile: (r.Mobile || '').trim()
+                });
+            }
+        }
+
+        // Add ACT_TBL_007 results, complementing or updating
+        for (const r of (actRows || [])) {
+            const code = (r.PersonCode || '').trim();
+            const name = (r.FullName || '').trim();
+            if (code && name) {
+                if (!mergedMap.has(code)) {
+                    mergedMap.set(code, {
+                        personCode: code,
+                        fullName: name,
+                        nationalId: '',
+                        mobile: ''
+                    });
+                } else if (name.length > mergedMap.get(code).fullName.length) {
+                    // If ACT_TBL_007 has a fuller name, use it
+                    mergedMap.get(code).fullName = name;
+                }
+            }
+        }
+
+        const resultList = Array.from(mergedMap.values()).slice(0, limit);
+        return resultList;
     } catch (err) {
         console.error('Error searching persons in Sayan:', err);
         return [];
@@ -439,7 +497,11 @@ export const getChequeReceiptsHistory = async (fiscalYear = '4', search = '') =>
                 h.Field_010 as PersonCode,
                 h.Field_025 as TotalAmount,
                 h.Field_028 as Description,
-                RTRIM(LTRIM(CONCAT(COALESCE(g.Field_006, ''), ' ', COALESCE(g.Field_007, '')))) as PersonName,
+                COALESCE(
+                    NULLIF(RTRIM(LTRIM(act.Field_006)), ''),
+                    NULLIF(RTRIM(LTRIM(CONCAT(COALESCE(g.Field_006, ''), ' ', COALESCE(g.Field_007, '')))), ''),
+                    CONCAT(N'کد تفصیلی ', h.Field_010)
+                ) as PersonName,
                 r.Field_001 as RowId,
                 r.Field_006 as RowAmount,
                 r.Field_007 as ChequeId,
@@ -450,12 +512,13 @@ export const getChequeReceiptsHistory = async (fiscalYear = '4', search = '') =>
                 c.Field_009 as BankName,
                 c.Field_011 as InNameOf,
                 c.Field_016 as PoshtNomreh
-            FROM BUR_TBL_008 h
-            LEFT JOIN GNR_TBL_001 g ON RTRIM(LTRIM(g.Field_003)) = RTRIM(LTRIM(h.Field_010))
-            INNER JOIN BUR_TBL_009 r ON r.Field_004 = h.Field_005 AND r.Field_003 = h.Field_004
-            LEFT JOIN BUR_TBL_012 c ON c.Field_001 = r.Field_007
+            FROM BUR_TBL_008 h WITH (NOLOCK)
+            LEFT JOIN ACT_TBL_007 act WITH (NOLOCK) ON RTRIM(LTRIM(act.Field_005)) = RTRIM(LTRIM(h.Field_010)) AND (act.Field_004 = '11' OR act.Field_004 = '31')
+            LEFT JOIN GNR_TBL_001 g WITH (NOLOCK) ON RTRIM(LTRIM(g.Field_003)) = RTRIM(LTRIM(h.Field_010)) OR RTRIM(LTRIM(g.Field_005)) = RTRIM(LTRIM(h.Field_010))
+            INNER JOIN BUR_TBL_009 r WITH (NOLOCK) ON r.Field_004 = h.Field_005 AND r.Field_003 = h.Field_004
+            LEFT JOIN BUR_TBL_012 c WITH (NOLOCK) ON c.Field_001 = r.Field_007
             WHERE h.Field_004 = '${fy}' AND h.Field_009 = '11'
-            ORDER BY CAST(h.Field_005 as bigint) DESC, CAST(r.Field_025 as int) ASC
+            ORDER BY h.Field_005 DESC, r.Field_025 ASC
         `;
         const flatRows = await executeSayanQuery(sql);
 
@@ -1187,14 +1250,19 @@ export const registerChequeReceiptInSayan = async (receiptId, currentUser) => {
 
     // 2.5. Fetch actual person name and next accounting document number
     let personName = String(record.personName || '').trim();
-    if (!personName) {
+    if (!personName || personName.startsWith('کد ') || personName.startsWith('شخص ')) {
         try {
-            const pRes = await executeSayanQuery(`SELECT TOP 1 Field_006 as PersonName FROM ACT_TBL_007 WHERE Field_004 = '11' AND Field_005 = '${personCode}'`);
+            const pRes = await executeSayanQuery(`SELECT TOP 1 Field_006 as PersonName FROM ACT_TBL_007 WHERE (Field_004 = '11' OR Field_004 = '31') AND RTRIM(LTRIM(Field_005)) = '${personCode}'`);
             if (pRes[0]?.PersonName) {
                 personName = pRes[0].PersonName;
+            } else {
+                const gRes = await executeSayanQuery(`SELECT TOP 1 RTRIM(LTRIM(CONCAT(COALESCE(Field_006, ''), ' ', COALESCE(Field_007, '')))) as PersonName FROM GNR_TBL_001 WHERE RTRIM(LTRIM(Field_003)) = '${personCode}' OR RTRIM(LTRIM(Field_005)) = '${personCode}'`);
+                if (gRes[0]?.PersonName) {
+                    personName = gRes[0].PersonName;
+                }
             }
         } catch (pErr) {
-            console.warn('Could not query ACT_TBL_007 for PersonName:', pErr.message);
+            console.warn('Could not query Sayan for PersonName:', pErr.message);
         }
     }
     personName = personName.replace(/'/g, "''");
@@ -1355,12 +1423,18 @@ export const getSayanRealDocumentDetails = async (archiveCode, fiscalYear = '4')
                 h.Field_025 as TotalAmount,
                 h.Field_028 as Description,
                 h.Field_030 as RegDate,
+                COALESCE(
+                    NULLIF(RTRIM(LTRIM(act.Field_006)), ''),
+                    NULLIF(RTRIM(LTRIM(CONCAT(COALESCE(g.Field_006, ''), ' ', COALESCE(g.Field_007, '')))), ''),
+                    CONCAT(N'کد تفصیلی ', h.Field_010)
+                ) as PersonName,
                 g.Field_006 as FirstName,
                 g.Field_007 as LastName,
                 g.Field_009 as NationalId,
                 g.Field_015 as Mobile
-            FROM BUR_TBL_008 h
-            LEFT JOIN GNR_TBL_001 g ON RTRIM(LTRIM(g.Field_003)) = RTRIM(LTRIM(h.Field_010))
+            FROM BUR_TBL_008 h WITH (NOLOCK)
+            LEFT JOIN ACT_TBL_007 act WITH (NOLOCK) ON RTRIM(LTRIM(act.Field_005)) = RTRIM(LTRIM(h.Field_010))
+            LEFT JOIN GNR_TBL_001 g WITH (NOLOCK) ON RTRIM(LTRIM(g.Field_003)) = RTRIM(LTRIM(h.Field_010))
             WHERE h.Field_004 = '${cleanFy}' AND (h.Field_005 = '${cleanArch}' OR h.Field_006 = '${cleanArch}')
         `;
         const headers = await executeSayanQuery(headerSql);
@@ -1372,7 +1446,7 @@ export const getSayanRealDocumentDetails = async (archiveCode, fiscalYear = '4')
         }
         const header = headers[0];
         const actualArchive = header.ArchiveCode;
-        const fullName = `${header.FirstName || ''} ${header.LastName || ''}`.trim() || `کد ${header.PersonCode}`;
+        const fullName = (header.PersonName || `${header.FirstName || ''} ${header.LastName || ''}`.trim() || `کد ${header.PersonCode}`).trim();
 
         // 2. Rows (BUR_TBL_009)
         const rowsSql = `

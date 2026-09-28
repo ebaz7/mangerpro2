@@ -479,7 +479,7 @@ export const SayanChequeReceiptsTab: React.FC<Props> = ({
 
     useEffect(() => {
         if (!personQuery || personQuery.trim().length === 0) {
-            setPersonSearchResults([]);
+            fetchPersons('');
             return;
         }
         const timer = setTimeout(() => {
@@ -781,21 +781,25 @@ export const SayanChequeReceiptsTab: React.FC<Props> = ({
         setActionLoading('submit_new');
 
         try {
+            const matchedPerson = selectedPerson || personSearchResults.find(p => p.fullName === personQuery.trim() || p.personCode === personQuery.trim());
+            const finalPersonCode = matchedPerson ? matchedPerson.personCode : (personQuery.trim() || '101');
+            const finalPersonName = matchedPerson ? matchedPerson.fullName : personQuery.trim();
+
             const payload = {
                 fiscalYear,
                 receiptNo: receiptNoInput.trim() || undefined,
                 poshtNomreh: poshtNomreh.trim() || '1',
-                personCode: selectedPerson ? selectedPerson.personCode : '101',
-                personName: selectedPerson ? selectedPerson.fullName : personQuery.trim(),
+                personCode: finalPersonCode,
+                personName: finalPersonName,
                 cashboxCode,
                 totalAmount: sumChequesAmount,
-                description: description.trim() || `رسید دریافت چک - ${selectedPerson?.fullName || personQuery}`,
+                description: description.trim() || `رسید دریافت چک - ${finalPersonName || finalPersonCode}`,
                 cheques: chequeRows.map((r, idx) => ({
                     chequeNumber: r.chequeNumber.trim(),
                     amount: Number(r.amount),
                     dueDate: r.dueDate,
                     bankName: r.bankName.trim() || 'سامان',
-                    inNameOf: r.inNameOf.trim() || (selectedPerson?.fullName || personQuery),
+                    inNameOf: r.inNameOf.trim() || finalPersonName,
                     poshtNomreh: poshtNomreh.trim() || '1',
                     rowSeq: idx + 1,
                     description: r.description?.trim() || ''

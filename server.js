@@ -58,6 +58,7 @@ import { mergeFilesToPdf } from './backend/pdf-merger.js';
 
 const getDb = dbManager.getDb;
 const saveDb = dbManager.saveDb;
+const sanitizeSayanUrl = dbManager.sanitizeSayanUrl;
 const findNextGapNumber = utils.findNextGapNumber;
 const findNextMaxNumber = utils.findNextMaxNumber;
 const checkForDuplicate = utils.checkForDuplicate;
@@ -1691,15 +1692,12 @@ const parseJalaliStrToGregorian = (jalaliStr) => {
 
 const executeSayanQuery = async (db, queryStr) => {
     const settings = db.settings || {};
-    let serverSayanBaseUrl = settings.sayanApiUrl || process.env.SAYAN_API_URL || 'http://80.210.31.176:5000/api/external/v1';
+    let serverSayanBaseUrl = sanitizeSayanUrl(settings.sayanApiUrl || process.env.SAYAN_API_URL || 'http://80.210.31.176:5000/api/external/v1');
     const serverSayanApiKey = settings.sayanApiKey || process.env.SAYAN_API_KEY || 's_gate_live_vzje5nkn7q4u';
     if (!serverSayanBaseUrl || !serverSayanApiKey) {
         throw new Error('تنظیمات آدرس API و کلید امنیتی سایان در بخش تنظیمات سیستم وارد نشده است.');
     }
-    if (serverSayanBaseUrl.replace(/\/$/, '').endsWith('/api/v1')) {
-        serverSayanBaseUrl = serverSayanBaseUrl.replace(/\/$/, '').replace(/\/api\/v1$/, '/api/external/v1');
-    }
-    const finalUrl = `${serverSayanBaseUrl.replace(/\/$/, '')}/query`;
+    const finalUrl = `${serverSayanBaseUrl}/query`;
     const response = await fetch(finalUrl, {
         method: 'POST',
         headers: {
@@ -1722,15 +1720,11 @@ app.post('/api/sayan-proxy', async (req, res) => {
     try {
         const db = getDb();
         const settings = db.settings || {};
-        let serverSayanBaseUrl = settings.sayanApiUrl || process.env.SAYAN_API_URL || 'http://80.210.31.176:5000/api/external/v1';
+        let serverSayanBaseUrl = sanitizeSayanUrl(settings.sayanApiUrl || process.env.SAYAN_API_URL || 'http://80.210.31.176:5000/api/external/v1');
         const serverSayanApiKey = settings.sayanApiKey || process.env.SAYAN_API_KEY || 's_gate_live_vzje5nkn7q4u';
 
         if (!serverSayanBaseUrl || !serverSayanApiKey) {
             return res.status(400).json({ error: 'تنظیمات آدرس API و کلید امنیتی سایان در بخش تنظیمات سیستم وارد نشده است.' });
-        }
-
-        if (serverSayanBaseUrl.replace(/\/$/, '').endsWith('/api/v1')) {
-            serverSayanBaseUrl = serverSayanBaseUrl.replace(/\/$/, '').replace(/\/api\/v1$/, '/api/external/v1');
         }
 
         const { path: targetPath, method: targetMethod, body: targetBody } = req.body;
@@ -1739,7 +1733,7 @@ app.post('/api/sayan-proxy', async (req, res) => {
         }
 
         const cleanPath = targetPath.replace(/^\//, '');
-        const finalUrl = `${serverSayanBaseUrl.replace(/\/$/, '')}/${cleanPath}`;
+        const finalUrl = `${serverSayanBaseUrl}/${cleanPath}`;
 
         const headers = {
             'Authorization': `Bearer ${serverSayanApiKey}`,
@@ -1775,17 +1769,14 @@ app.post('/api/sayan/test-connection', async (req, res) => {
     try {
         const db = getDb();
         const settings = db.settings || {};
-        const url = (req.body && req.body.url) || settings.sayanApiUrl || process.env.SAYAN_API_URL || 'http://80.210.31.176:5000/api/external/v1';
+        const rawUrl = (req.body && req.body.url) || settings.sayanApiUrl || process.env.SAYAN_API_URL || 'http://80.210.31.176:5000/api/external/v1';
         const apiKey = (req.body && req.body.apiKey) !== undefined ? req.body.apiKey : (settings.sayanApiKey || process.env.SAYAN_API_KEY || 's_gate_live_vzje5nkn7q4u');
 
-        if (!url) {
+        if (!rawUrl) {
             return res.status(400).json({ success: false, error: 'آدرس سرور یا IP وب‌سرویس سایان وارد نشده است.' });
         }
 
-        let cleanUrl = url.replace(/\/$/, '');
-        if (cleanUrl.endsWith('/api/v1')) {
-            cleanUrl = cleanUrl.replace(/\/api\/v1$/, '/api/external/v1');
-        }
+        const cleanUrl = sanitizeSayanUrl(rawUrl);
         const startTime = Date.now();
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 8000);

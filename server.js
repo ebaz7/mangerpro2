@@ -247,27 +247,54 @@ const FORBIDDEN_EXTENSIONS = new Set([
     '.jar', '.jsp', '.cgi', '.scr', '.hta', '.msi', '.com', '.wsf', '.vbe'
 ]);
 
+const decodeUtf8FileName = (origName) => {
+    if (!origName || typeof origName !== 'string') return '';
+    let name = origName.trim();
+    if (/[\u00C0-\u00FF\u0080-\u00BF]/.test(name)) {
+        try {
+            const converted = Buffer.from(name, 'latin1').toString('utf8');
+            if (converted && !converted.includes('\ufffd') && converted.length > 0) {
+                name = converted;
+            }
+        } catch (_) {}
+    }
+    return name;
+};
+
 const getSafeFileName = (origName) => {
     if (!origName || typeof origName !== 'string') return `file_${Date.now()}`;
-    const base = path.basename(origName).replace(/[\/\\]/g, '');
+    const decodedName = decodeUtf8FileName(origName);
+    const base = path.basename(decodedName).replace(/[\/\\]/g, '');
     const ext = path.extname(base).toLowerCase();
     if (FORBIDDEN_EXTENSIONS.has(ext)) {
         throw new Error('فرمت فایل ارسالی به دلایل امنیتی مجاز نمی‌باشد.');
     }
-    const cleanBase = base.replace(/[^a-zA-Z0-9._\-\u0600-\u06FF]/g, '_');
+    const cleanBase = base.replace(/[^a-zA-Z0-9._\-\u0600-\u06FF\s]/g, '_').trim();
     return cleanBase || `file_${Date.now()}`;
 };
 
-// --- SHARE TARGET FOR ANDROID AND PWA ---
+// --- SHARE TARGET FOR ANDROID AND PWA & FILE UPLOADS ---
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
+        let category = req.query?.category || req.headers?.['x-category'] || req.body?.category || '';
+        if (typeof category === 'string' && category.trim()) {
+            const cleanCat = category.replace(/[^a-zA-Z0-9_\-\/]/g, '').replace(/\.\./g, '').replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
+            if (cleanCat) {
+                const targetDir = path.join(UPLOADS_DIR, cleanCat);
+                if (path.resolve(targetDir).startsWith(path.resolve(UPLOADS_DIR))) {
+                    try {
+                        fs.mkdirSync(targetDir, { recursive: true });
+                        return cb(null, targetDir);
+                    } catch (err) {
+                        console.error("Error creating upload directory:", err);
+                    }
+                }
+            }
+        }
         cb(null, UPLOADS_DIR);
     },
     filename: function (req, file, cb) {
-        let origName = file.originalname || 'file.jpg';
-        try {
-            origName = Buffer.from(origName, 'latin1').toString('utf8');
-        } catch (_) {}
+        const origName = decodeUtf8FileName(file.originalname) || 'file.jpg';
         let safeBase = 'file';
         try {
             safeBase = getSafeFileName(origName);
@@ -287,29 +314,61 @@ app.post('/api/share-target', upload.single('files'), (req, res) => {
     const text = req.body.text || req.body.url || '';
     let sharedUrl = '';
     if (req.file) {
-        sharedUrl = `/uploads/${req.file.filename}`;
+        const relPath = path.relative(UPLOADS_DIR, req.file.path).replace(/\\/g, '/');
+        sharedUrl = `/uploads/${relPath}`;
     }
     const redirectUrl = `/?sharedFileUrl=${encodeURIComponent(sharedUrl)}&sharedText=${encodeURIComponent(text)}`;
     res.redirect(redirectUrl);
 });
 
-// Direct Multipart File Upload Endpoint for high-speed mobile & desktop uploads
+// Direct Multipart File Upload Endpoint for high-speed mobile & desktop uploads (supports categories)
 app.post('/api/upload-file', upload.single('file'), (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ success: false, error: 'هیچ فایلی برای بارگذاری ارسال نشده است.' });
         }
-        const fileUrl = `/uploads/${req.file.filename}`;
+        const relPath = path.relative(UPLOADS_DIR, req.file.path).replace(/\\/g, '/');
+        const fileUrl = `/uploads/${relPath}`;
+        const decodedOriginalName = decodeUtf8FileName(req.file.originalname) || req.file.originalname;
         res.json({
             success: true,
-            fileName: req.file.originalname,
+            fileName: decodedOriginalName,
             url: fileUrl,
             fileSize: req.file.size,
-            fileType: req.file.mimetype
+            fileType: req.file.mimetype,
+            category: req.query?.category || req.headers?.['x-category'] || req.body?.category || ''
         });
     } catch (e) {
         console.error("Direct file upload error:", e);
         res.status(500).json({ success: false, error: 'خطا در بارگذاری فایل: ' + e.message });
+    }
+});
+
+// Safe File Delete Endpoint
+app.post('/api/delete-file', (req, res) => {
+    try {
+        const { url } = req.body;
+        if (!url || typeof url !== 'string' || !url.startsWith('/uploads/')) {
+            return res.status(400).json({ success: false, error: 'آدرس فایل نامعتبر است' });
+        }
+        const relPath = url.replace('/uploads/', '').replace(/\.\./g, '');
+        const fullPath = path.join(UPLOADS_DIR, relPath);
+        if (!path.resolve(fullPath).startsWith(path.resolve(UPLOADS_DIR))) {
+            return res.status(403).json({ success: false, error: 'مسیر فایل غیرمجاز است' });
+        }
+        if (fs.existsSync(fullPath)) {
+            try {
+                fs.unlinkSync(fullPath);
+                return res.json({ success: true, message: 'فایل با موفقیت از سرور حذف شد' });
+            } catch (err) {
+                console.error("Error deleting file:", err);
+                return res.status(500).json({ success: false, error: 'خطا در حذف فیزیکی فایل' });
+            }
+        }
+        res.json({ success: true, message: 'فایل وجود نداشت یا قبلاً حذف شده بود' });
+    } catch (e) {
+        console.error("Delete file endpoint error:", e);
+        res.status(500).json({ success: false, error: 'خطا در پردازش درخواست حذف' });
     }
 });
 
@@ -1686,6 +1745,17 @@ app.post('/api/sayan-proxy', async (req, res) => {
         }
 
         const response = await fetch(finalUrl, fetchOptions);
+        const contentType = response.headers.get('content-type') || '';
+        const isJson = contentType.includes('application/json');
+
+        if (!isJson) {
+            const rawText = await response.text().catch(() => '');
+            console.error(`Sayan Proxy Non-JSON response (${response.status}):`, rawText.slice(0, 200));
+            return res.status(response.status || 502).json({
+                error: `پاسخ وب‌سرویس سایان در قالب JSON نیست (کد وضعیت ${response.status}).`
+            });
+        }
+
         const data = await response.json().catch(() => null);
 
         if (!response.ok) {
@@ -2389,6 +2459,21 @@ app.get('/api/warehouse-overview/data', (req, res) => {
     }
 });
 
+app.post('/api/warehouse-overview/excluded', (req, res) => {
+    try {
+        const db = getDb();
+        const overview = db.warehouseOverview || {};
+        overview.excludedRegistrationNumbers = Array.isArray(req.body?.excluded) ? req.body.excluded : [];
+        if (!overview.meta) overview.meta = {};
+        overview.meta.excludedRegistrationNumbers = overview.excludedRegistrationNumbers;
+        db.warehouseOverview = overview;
+        saveDb(db);
+        res.json({ success: true, count: overview.excludedRegistrationNumbers.length });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get('/api/warehouse-overview/live-status', async (req, res) => {
     try {
         const db = getDb();
@@ -2396,15 +2481,45 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
         const sayanUrl = settings.sayanApiUrl || process.env.SAYAN_API_URL;
         const sayanKey = settings.sayanApiKey || process.env.SAYAN_API_KEY;
 
+        let queryExcluded = [];
+        try {
+            if (req.query.excluded) {
+                queryExcluded = typeof req.query.excluded === 'string' ? JSON.parse(req.query.excluded) : req.query.excluded;
+            }
+        } catch {}
+
+        const overview = db.warehouseOverview || {};
+        const meta = overview.meta || {};
+        const isCumulative = meta.cumulativeFromLastYear !== undefined ? meta.cumulativeFromLastYear : true;
+
+        const excludedList = [
+            ...(Array.isArray(queryExcluded) ? queryExcluded : []),
+            ...(Array.isArray(overview.excludedRegistrationNumbers) ? overview.excludedRegistrationNumbers : []),
+            ...(Array.isArray(meta.excludedRegistrationNumbers) ? meta.excludedRegistrationNumbers : [])
+        ].map(x => String(x).trim()).filter(Boolean);
+
+        const isItemExcluded = (item) => {
+            if (!item || excludedList.length === 0) return false;
+            const reg = item.registrationNumber ? String(item.registrationNumber).trim() : '';
+            const prof = item.proforma || item.fileNumber ? String(item.proforma || item.fileNumber).trim() : '';
+            const id = item.id ? String(item.id).trim() : '';
+            return (
+                (reg !== '' && excludedList.includes(reg)) ||
+                (prof !== '' && excludedList.includes(prof)) ||
+                (id !== '' && excludedList.includes(id))
+            );
+        };
+
         if (!sayanUrl || !sayanKey) {
-            const meta = db.warehouseOverview?.meta || {};
+            const rawCurrentAll = meta.totalCurrentAllWeight !== undefined ? meta.totalCurrentAllWeight : 0;
+            const rawDiffAll = meta.diffAllWeight !== undefined ? meta.diffAllWeight : 0;
             return res.json({
                 success: true,
                 isMock: false,
                 message: 'تنظیمات ارتباط زنده سایان ثبت نشده؛ استفاده از آخرین تراز ذخیره‌شده',
                 meta: {
-                    totalCurrentAllWeight: meta.totalCurrentAllWeight !== undefined ? meta.totalCurrentAllWeight : 0,
-                    diffAllWeight: meta.diffAllWeight !== undefined ? meta.diffAllWeight : 0,
+                    totalCurrentAllWeight: rawCurrentAll,
+                    diffAllWeight: rawDiffAll,
                     ratioAllWeight: meta.ratioAllWeight !== undefined ? meta.ratioAllWeight : 0,
                     totalPositiveWeight: meta.totalPositiveWeight !== undefined ? meta.totalPositiveWeight : 0,
                     totalNegativeWeight: meta.totalNegativeWeight !== undefined ? meta.totalNegativeWeight : 0,
@@ -2412,10 +2527,6 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
                 }
             });
         }
-
-        const overview = db.warehouseOverview || {};
-        const meta = overview.meta || {};
-        const isCumulative = meta.cumulativeFromLastYear !== undefined ? meta.cumulativeFromLastYear : true;
 
         const getJalaliYear = (jalaliStr) => {
             const clean = String(jalaliStr || '').trim()
@@ -2658,6 +2769,16 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
         const parsedCommercialDomesticPurchases = [];
 
         for (const record of activeTradeRecords) {
+            const recordExcluded = isItemExcluded({
+                id: `com_${record.id}`,
+                registrationNumber: record.registrationNumber || record.orderRegistrationNumber,
+                proforma: record.fileNumber || record.proformaNumber || record.proforma
+            }) || (record.id && isItemExcluded({ id: String(record.id) }));
+
+            if (recordExcluded) {
+                continue;
+            }
+
             const isCompleted = record.status === 'Completed' || Boolean(record.isArchived);
 
             const isDomestic = record.purchaseType === 'domestic_bourse' || Boolean(record.petrochemicalData);
@@ -2752,25 +2873,28 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
                 .filter(Boolean)
         );
 
-        const baseCustoms = (overview.goodsInCustoms || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)));
-        const baseTransit = (overview.goodsInTransit || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)));
-        const basePurchase = (overview.purchasingGoods || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)));
-        const baseDomestic = (overview.domesticPurchases || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)));
+        const baseCustoms = (overview.goodsInCustoms || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)) && !isItemExcluded(x));
+        const baseTransit = (overview.goodsInTransit || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)) && !isItemExcluded(x));
+        const basePurchase = (overview.purchasingGoods || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)) && !isItemExcluded(x));
+        const baseDomestic = (overview.domesticPurchases || []).filter((x) => !x.id.startsWith('com_') && (!x.proforma || !clearedFileNumbers.has(x.proforma)) && !isItemExcluded(x));
+        const baseCommercial = (overview.commercialGoods || []).filter((x) => !isItemExcluded({ id: x.id, registrationNumber: x.itemName }));
 
         const mergedBasePurchaseAndTransit = [...basePurchase, ...baseTransit];
 
         const finalGoodsInCustoms = [...baseCustoms, ...parsedCommercialCustoms];
         const finalPurchasingGoods = [...mergedBasePurchaseAndTransit, ...parsedCommercialPurchaseAndTransit];
         const finalDomesticPurchases = [...baseDomestic, ...parsedCommercialDomesticPurchases];
+        const finalCommercialGoods = [...baseCommercial];
 
         const calculateCustomTableSum = (items, field) => (items || []).reduce((sum, r) => sum + (parseFloat(r[field]) || 0), 0);
 
         const customs = calculateCustomTableSum(finalGoodsInCustoms, 'weight');
         const purchase = calculateCustomTableSum(finalPurchasingGoods, 'weight');
         const domestic = calculateCustomTableSum(finalDomesticPurchases, 'weight');
+        const commercial = calculateCustomTableSum(finalCommercialGoods, 'weight');
         const transit = 0;
 
-        const totalCurrentRawWeight = bg + transit + customs + purchase + domestic;
+        const totalCurrentRawWeight = bg + transit + customs + purchase + domestic + commercial;
 
         const totalLastYearAllWeight = totalLastYearYarnsWeight + totalLastYearRawWeight;
         const totalCurrentAllWeight = totalCurrentYarnsWeight + totalCurrentRawWeight;
@@ -2797,19 +2921,19 @@ app.get('/api/warehouse-overview/live-status', async (req, res) => {
             else if (diff < 0) totalNegativeWeight += diff;
         });
 
-        (overview.goodsInCustoms || []).forEach(item => {
+        (finalGoodsInCustoms || []).forEach(item => {
             const wCurr = parseFloat(item.weight) || 0;
             if (wCurr > 0) totalPositiveWeight += wCurr;
             else if (wCurr < 0) totalNegativeWeight += wCurr;
         });
 
-        (overview.purchasingGoods || []).forEach(item => {
+        (finalPurchasingGoods || []).forEach(item => {
             const wCurr = parseFloat(item.weight) || 0;
             if (wCurr > 0) totalPositiveWeight += wCurr;
             else if (wCurr < 0) totalNegativeWeight += wCurr;
         });
 
-        (overview.domesticPurchases || []).forEach(item => {
+        (finalDomesticPurchases || []).forEach(item => {
             const wCurr = parseFloat(item.weight) || 0;
             if (wCurr > 0) totalPositiveWeight += wCurr;
             else if (wCurr < 0) totalNegativeWeight += wCurr;
@@ -9389,7 +9513,7 @@ app.delete('/api/calendar-events/:id', (req, res) => {
 // 9. FILE UPLOAD (Base64 JSON Endpoint)
 app.post('/api/upload', (req, res) => {
     try {
-        const { fileName, fileData } = req.body;
+        const { fileName, fileData, category } = req.body;
         if (!fileName || !fileData) return res.status(400).send('Missing data');
 
         let safeName;
@@ -9399,10 +9523,26 @@ app.post('/api/upload', (req, res) => {
             return res.status(400).json({ error: verr.message });
         }
 
+        let targetDir = UPLOADS_DIR;
+        if (category && typeof category === 'string') {
+            const cleanCat = category.replace(/[^a-zA-Z0-9_\-\/]/g, '').replace(/\.\./g, '').replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
+            if (cleanCat) {
+                const possibleDir = path.join(UPLOADS_DIR, cleanCat);
+                if (path.resolve(possibleDir).startsWith(path.resolve(UPLOADS_DIR))) {
+                    try {
+                        fs.mkdirSync(possibleDir, { recursive: true });
+                        targetDir = possibleDir;
+                    } catch (err) {
+                        console.error("Error creating upload subfolder:", err);
+                    }
+                }
+            }
+        }
+
         // Fix Regex to handle complex MIME types (e.g. audio/webm;codecs=opus)
         const base64Data = fileData.replace(/^data:.*;base64,/, '');
         const uniqueName = `${Date.now()}_${safeName}`;
-        const filePath = path.join(UPLOADS_DIR, uniqueName);
+        const filePath = path.join(targetDir, uniqueName);
 
         // Security check: ensure path stays strictly in uploads
         if (!path.resolve(filePath).startsWith(path.resolve(UPLOADS_DIR))) {
@@ -9411,7 +9551,8 @@ app.post('/api/upload', (req, res) => {
 
         fs.writeFile(filePath, base64Data, 'base64', (err) => {
             if (err) return res.status(500).send('Upload failed');
-            res.json({ fileName: safeName, url: `/uploads/${uniqueName}` });
+            const relPath = path.relative(UPLOADS_DIR, filePath).replace(/\\/g, '/');
+            res.json({ fileName: decodeUtf8FileName(fileName) || safeName, url: `/uploads/${relPath}` });
         });
     } catch (e) {
         console.error("Upload error:", e);

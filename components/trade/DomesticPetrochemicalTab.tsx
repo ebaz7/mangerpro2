@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { TradeDatePicker } from '../TradeDatePicker';
 import { PrintDomesticPetrochemical } from '../print/PrintDomesticPetrochemical';
+import { TradeAttachmentSection } from './TradeAttachmentSection';
 
 interface DomesticPetrochemicalTabProps {
     record: TradeRecord;
@@ -1444,6 +1445,20 @@ export const DomesticPetrochemicalTab: React.FC<DomesticPetrochemicalTabProps> =
                     </div>
                 </div>
             )}
+
+            {/* Petrochemical & Bourse Documents & Attachments */}
+            <div className="glass-panel p-6 rounded-2xl shadow-sm border border-emerald-100 dark:border-emerald-950/60 bg-white dark:bg-gray-800/90 space-y-4">
+                <TradeAttachmentSection
+                    attachments={record.attachments || []}
+                    onAttachmentsChange={(updated) => {
+                        onUpdateRecord({ ...record, attachments: updated });
+                    }}
+                    category="commercial/petrochemical"
+                    title="پیوست‌ها و اسناد خرید پتروشیمی و بورس کالا (تصویر و PDF)"
+                    description="تصویر قرارداد بورس کالا، پیش‌فاکتور پتروشیمی، نامه‌های گشایش ال‌سی داخلی/برات، فیش‌های واریزی و قبوض باسکول"
+                    currentUser={currentUser}
+                />
+            </div>
         </div>
     );
 };
